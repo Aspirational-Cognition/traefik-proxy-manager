@@ -13,7 +13,7 @@ The scheme, hostname/IP, and port a Proxy Host sends traffic to.
 _Avoid_: Backend, upstream, server
 
 **Exposure**:
-Which networks a Proxy Host is reachable from: **Internal**, **External**, or **Both**. Set once per Proxy Host; tpm maps it to the matching Traefik entrypoints.
+Which networks a Proxy Host is reachable from: **Internal**, **External**, or **Both**. Set once per Proxy Host; tpm maps it to the matching Traefik entrypoints. An install may provide only Internal or only External; then there is no choice to make.
 _Avoid_: Zone, network, visibility, scope
 
 **Label Route**:
