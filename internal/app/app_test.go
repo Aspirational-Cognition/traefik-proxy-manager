@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -32,7 +33,9 @@ func internalOnly(dataDir string) map[string]string {
 
 func newApp(t *testing.T, env map[string]string) *app.App {
 	t.Helper()
-	a, err := app.New(func(k string) string { return env[k] }, func() time.Time { return t0 })
+	// The clock ticks a second per reading, so each save gets a new updatedAt.
+	now := t0.Add(-time.Second)
+	a, err := app.New(func(k string) string { return env[k] }, func() time.Time { now = now.Add(time.Second); return now })
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -74,13 +77,10 @@ func TestFreshInstallServesEmptySnapshot(t *testing.T) {
 	}
 }
 
-// addHost submits the Add Proxy Host form the way the browser does.
+// addHost submits the Add Proxy Host form.
 func addHost(t *testing.T, h http.Handler, form url.Values) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest("POST", "/proxy-hosts", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("HX-Request", "true")
-	return do(t, h, req)
+	return post(t, h, "/proxy-hosts", form)
 }
 
 func hostForm(domains string) url.Values {
@@ -90,6 +90,7 @@ func hostForm(domains string) url.Values {
 		"host":         {"192.168.1.10"},
 		"port":         {"5000"},
 		"certResolver": {"le-http"},
+		"enabled":      {"on"},
 	}
 }
 
@@ -453,5 +454,209 @@ func TestCrossSiteFormPostIsRefused(t *testing.T) {
 	}
 	if got := routerNames(t, a); len(got) != 0 {
 		t.Fatalf("cross-site post reached Traefik: %v", got)
+	}
+}
+
+func post(t *testing.T, h http.Handler, path string, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("POST", path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return do(t, h, req)
+}
+
+var hiddenUpdatedAt = regexp.MustCompile(`name="updatedAt" value="([^"]+)"`)
+
+// editForm opens a host's edit modal and returns it with the updatedAt it carries.
+func editForm(t *testing.T, h http.Handler, id int) (string, string) {
+	t.Helper()
+	modal := get(t, h, fmt.Sprintf("/proxy-hosts/%d/edit", id))
+	m := hiddenUpdatedAt.FindStringSubmatch(modal)
+	if m == nil {
+		t.Fatalf("edit modal carries no updatedAt:\n%s", modal)
+	}
+	return modal, m[1]
+}
+
+func TestEditingAHostKeepsItsID(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	addHost(t, a, hostForm("nas.example.com"))
+
+	modal, updatedAt := editForm(t, a, 1)
+	assertContains(t, modal, "Edit Proxy Host", `value="nas.example.com"`, `value="192.168.1.10"`, `value="5000"`,
+		`<option value="le-http" selected>`, `hx-post="/proxy-hosts/1"`)
+
+	form := hostForm("files.example.com")
+	form.Set("port", "6000")
+	form.Set("updatedAt", updatedAt)
+	if rec := post(t, a, "/proxy-hosts/1", form); rec.Code != 200 {
+		t.Fatalf("POST /proxy-hosts/1 = %d: %s", rec.Code, rec.Body)
+	}
+
+	snap := traefikConfig(t, a)["http"].(map[string]any)
+	if got := routerNames(t, a); !reflect.DeepEqual(got, []string{"host-1-internal-http", "host-1-internal-https"}) {
+		t.Fatalf("routers = %v", got)
+	}
+	assertContains(t, fmt.Sprint(snap["routers"]), "Host(`files.example.com`)")
+	assertContains(t, fmt.Sprint(snap["services"]), "http://192.168.1.10:6000")
+	assertContains(t, get(t, a, "/"), "files.example.com")
+}
+
+func TestSaveIsRefusedWhenSomeoneElseChangedTheHost(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	addHost(t, a, hostForm("nas.example.com"))
+	_, mine := editForm(t, a, 1)
+	_, theirs := editForm(t, a, 1)
+	form := hostForm("theirs.example.com")
+	form.Set("updatedAt", theirs)
+	post(t, a, "/proxy-hosts/1", form)
+
+	form = hostForm("mine.example.com")
+	form.Set("updatedAt", mine)
+	rec := post(t, a, "/proxy-hosts/1", form)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("stale save = %d, want 409", rec.Code)
+	}
+	assertContains(t, rec.Body.String(), "This host was changed by someone else; reload.", `value="mine.example.com"`)
+	assertContains(t, fmt.Sprint(traefikConfig(t, a)), "Host(`theirs.example.com`)")
+}
+
+func TestEditIsBlockedForHostsTraefikWouldReject(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	addHost(t, a, hostForm("nas.example.com"))
+	_, updatedAt := editForm(t, a, 1)
+	form := hostForm("*.example.com")
+	form.Set("updatedAt", updatedAt)
+
+	rec := post(t, a, "/proxy-hosts/1", form)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("POST /proxy-hosts/1 = %d, want 422", rec.Code)
+	}
+	assertContains(t, rec.Body.String(), "Wildcard domains", `hx-post="/proxy-hosts/1"`, "Edit Proxy Host")
+	assertContains(t, fmt.Sprint(traefikConfig(t, a)), "Host(`nas.example.com`)")
+}
+
+func TestUnknownHostIsNotFound(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	for _, req := range []*http.Request{
+		httptest.NewRequest("GET", "/proxy-hosts/7/edit", nil),
+		httptest.NewRequest("POST", "/proxy-hosts/7", strings.NewReader(hostForm("a.example.com").Encode())),
+		httptest.NewRequest("DELETE", "/proxy-hosts/7", nil),
+		httptest.NewRequest("POST", "/proxy-hosts/7/disable", nil),
+	} {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if rec := do(t, a, req); rec.Code != http.StatusNotFound {
+			t.Errorf("%s %s = %d, want 404", req.Method, req.URL, rec.Code)
+		}
+	}
+}
+
+func TestDeletingAHostRemovesItFromTraefik(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	addHost(t, a, hostForm("one.example.com"))
+	addHost(t, a, hostForm("two.example.com"))
+
+	rec := do(t, a, httptest.NewRequest("DELETE", "/proxy-hosts/1", nil))
+
+	if rec.Code != 200 {
+		t.Fatalf("DELETE /proxy-hosts/1 = %d: %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "one.example.com") {
+		t.Errorf("list still shows the deleted host:\n%s", rec.Body)
+	}
+	if got := routerNames(t, a); !reflect.DeepEqual(got, []string{"host-2-internal-http", "host-2-internal-https"}) {
+		t.Fatalf("routers = %v", got)
+	}
+}
+
+func TestIDsAreNeverReusedAfterDeletingTheHighestAndRestarting(t *testing.T) {
+	env := internalOnly(t.TempDir())
+	a := newApp(t, env)
+	addHost(t, a, hostForm("one.example.com"))
+	addHost(t, a, hostForm("two.example.com"))
+	do(t, a, httptest.NewRequest("DELETE", "/proxy-hosts/2", nil))
+
+	restarted := newApp(t, env)
+	addHost(t, restarted, hostForm("three.example.com"))
+
+	want := []string{"host-1-internal-http", "host-1-internal-https", "host-3-internal-http", "host-3-internal-https"}
+	if got := routerNames(t, restarted); !reflect.DeepEqual(got, want) {
+		t.Fatalf("routers = %v, want %v", got, want)
+	}
+}
+
+func TestDisablingAHostFromItsRowTakesItOutOfTraefik(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	addHost(t, a, hostForm("nas.example.com"))
+	assertContains(t, get(t, a, "/"), `hx-get="/proxy-hosts/1/edit"`, `hx-post="/proxy-hosts/1/disable"`, `hx-delete="/proxy-hosts/1"`)
+
+	rec := post(t, a, "/proxy-hosts/1/disable", nil)
+
+	if rec.Code != 200 {
+		t.Fatalf("disable = %d: %s", rec.Code, rec.Body)
+	}
+	assertContains(t, rec.Body.String(), "Disabled", `hx-post="/proxy-hosts/1/enable"`)
+	if got := routerNames(t, a); len(got) != 0 {
+		t.Fatalf("disabled host still served: %v", got)
+	}
+
+	post(t, a, "/proxy-hosts/1/enable", nil)
+
+	if got := routerNames(t, a); len(got) != 2 {
+		t.Fatalf("re-enabled host not served: %v", got)
+	}
+	if strings.Contains(get(t, a, "/"), "Disabled") {
+		t.Error("re-enabled host still shows Disabled")
+	}
+}
+
+func TestEnabledToggleInTheModal(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	assertContains(t, get(t, a, "/proxy-hosts/new"), `name="enabled" checked`)
+	form := hostForm("nas.example.com")
+	form.Del("enabled")
+
+	addHost(t, a, form)
+
+	if got := routerNames(t, a); len(got) != 0 {
+		t.Fatalf("host saved switched off is served: %v", got)
+	}
+	modal, updatedAt := editForm(t, a, 1)
+	if strings.Contains(modal, `name="enabled" checked`) {
+		t.Fatal("edit modal shows a disabled host as enabled")
+	}
+	form = hostForm("nas.example.com")
+	form.Set("updatedAt", updatedAt)
+	post(t, a, "/proxy-hosts/1", form)
+
+	if got := routerNames(t, a); len(got) != 2 {
+		t.Fatalf("host switched on in the modal isn't served: %v", got)
+	}
+}
+
+func TestEditNeverSwapsAnUnconfiguredResolverBehindTheUsersBack(t *testing.T) {
+	dir := t.TempDir()
+	restoreHosts(t, dir, `{"id": 1, "enabled": true, "domains": ["a.example.com"], "forward": {"scheme": "http", "host": "10.0.0.1", "port": 80}, "exposure": "internal", "certResolver": "old-le", "middlewares": [], "updatedAt": "2026-01-01T00:00:00Z"}`)
+	a := newApp(t, internalOnly(dir))
+
+	modal, updatedAt := editForm(t, a, 1)
+
+	assertContains(t, modal, `<option value="old-le" selected>old-le (not configured)</option>`)
+	if strings.Contains(modal, `value="le-dns" selected`) {
+		t.Fatal("edit form pre-selects a different resolver")
+	}
+	form := hostForm("a.example.com")
+	form.Set("certResolver", "old-le")
+	form.Set("updatedAt", updatedAt)
+	if rec := post(t, a, "/proxy-hosts/1", form); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("save with unconfigured resolver = %d, want 422", rec.Code)
+	}
+}
+
+func TestInvalidEditOfUnknownHostIsNotFound(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	if rec := post(t, a, "/proxy-hosts/7", hostForm("*.example.com")); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST /proxy-hosts/7 = %d, want 404", rec.Code)
 	}
 }

@@ -48,15 +48,17 @@ type dataFile struct {
 
 // store holds the Proxy Hosts in one JSON file, the single source of truth.
 // It is the file's only writer; every write replaces the file atomically.
+// It stamps createdAt/updatedAt, and updatedAt is each host's version.
 type store struct {
 	mu   sync.Mutex
 	path string
+	now  func() time.Time
 	data dataFile
 }
 
 // openStore loads the data file in dir. A missing file means zero hosts.
-func openStore(dir string) (*store, error) {
-	s := &store{path: filepath.Join(dir, "proxy-hosts.json"), data: dataFile{Version: 1, NextID: 1, ProxyHosts: []proxyHost{}}}
+func openStore(dir string, now func() time.Time) (*store, error) {
+	s := &store{path: filepath.Join(dir, "proxy-hosts.json"), now: now, data: dataFile{Version: 1, NextID: 1, ProxyHosts: []proxyHost{}}}
 	b, err := os.ReadFile(s.path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return s, nil
@@ -74,6 +76,11 @@ func openStore(dir string) (*store, error) {
 	return s, nil
 }
 
+var (
+	errNotFound = errors.New("no such Proxy Host")
+	errStale    = errors.New("Proxy Host changed since that version")
+)
+
 // add stores h as a new Proxy Host with the next ID.
 func (s *store) add(h proxyHost) error {
 	s.mu.Lock()
@@ -81,7 +88,61 @@ func (s *store) add(h proxyHost) error {
 	next := s.data
 	h.ID = next.NextID
 	next.NextID++
+	h.CreatedAt = s.now().UTC()
+	h.UpdatedAt = h.CreatedAt
 	next.ProxyHosts = append(slices.Clone(next.ProxyHosts), h)
+	return s.save(next)
+}
+
+// update applies change to Proxy Host id and saves it. With a non-nil seen,
+// the host must still be at that version, or update refuses with errStale.
+func (s *store) update(id int, seen *time.Time, change func(*proxyHost)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.index(id)
+	if i < 0 {
+		return errNotFound
+	}
+	if seen != nil && !s.data.ProxyHosts[i].UpdatedAt.Equal(*seen) {
+		return errStale
+	}
+	next := s.data
+	next.ProxyHosts = slices.Clone(next.ProxyHosts)
+	change(&next.ProxyHosts[i])
+	next.ProxyHosts[i].UpdatedAt = s.now().UTC()
+	return s.save(next)
+}
+
+// delete removes Proxy Host id. Its ID is never handed out again.
+func (s *store) delete(id int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.index(id)
+	if i < 0 {
+		return errNotFound
+	}
+	next := s.data
+	next.ProxyHosts = slices.Delete(slices.Clone(next.ProxyHosts), i, i+1)
+	return s.save(next)
+}
+
+// get returns Proxy Host id.
+func (s *store) get(id int) (proxyHost, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i := s.index(id); i >= 0 {
+		return s.data.ProxyHosts[i], true
+	}
+	return proxyHost{}, false
+}
+
+// index is the position of Proxy Host id, or -1.
+func (s *store) index(id int) int {
+	return slices.IndexFunc(s.data.ProxyHosts, func(h proxyHost) bool { return h.ID == id })
+}
+
+// save writes next to disk and only then makes it current.
+func (s *store) save(next dataFile) error {
 	if err := s.write(next); err != nil {
 		return err
 	}

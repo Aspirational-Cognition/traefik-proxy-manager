@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true}]}'>
+<meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"409","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true}]}'>
 <title>Proxy Hosts · tpm</title>
 <link rel="stylesheet" href="/static/app.css">
 <script src="/static/htmx.min.js"></script>
@@ -24,15 +24,21 @@
   </div>
   <div class="bg-surface rounded border border-line overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="text-left text-xs uppercase text-fg-muted"><tr><th class="p-3">Source</th><th class="p-3">Destination</th></tr></thead>
+      <thead class="text-left text-xs uppercase text-fg-muted"><tr><th class="p-3">Source</th><th class="p-3">Destination</th><th class="p-3">Status</th><th></th></tr></thead>
       <tbody>
       {{range .Hosts}}
-        <tr class="border-t border-line hover:bg-raised/50">
+        <tr class="border-t border-line hover:bg-raised/50{{if not .Enabled}} opacity-50{{end}}">
           <td class="p-3">{{range .Domains}}<span class="inline-block bg-raised text-fg rounded px-2 py-0.5 text-xs mr-1 mb-1">{{.}}</span>{{end}}</td>
           <td class="p-3 font-mono text-xs text-fg-soft">{{.Forward.URL}}</td>
+          <td class="p-3 text-xs text-fg-soft">{{if not .Enabled}}<span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-fg-muted"></span>Disabled</span>{{end}}</td>
+          <td class="p-3 text-right whitespace-nowrap text-xs space-x-2">
+            <button hx-get="/proxy-hosts/{{.ID}}/edit" hx-target="#modal" class="text-link hover:underline">Edit</button>
+            <button hx-post="/proxy-hosts/{{.ID}}/{{if .Enabled}}disable{{else}}enable{{end}}" hx-target="#proxy-hosts" hx-swap="outerHTML" class="text-fg-muted hover:underline">{{if .Enabled}}Disable{{else}}Enable{{end}}</button>
+            <button hx-delete="/proxy-hosts/{{.ID}}" hx-confirm="Delete the Proxy Host for {{index .Domains 0}}? Traefik will stop serving it." hx-target="#proxy-hosts" hx-swap="outerHTML" class="text-danger hover:underline">Delete</button>
+          </td>
         </tr>
       {{else}}
-        <tr><td colspan="2" class="p-8 text-center text-fg-muted">There are no Proxy Hosts yet. Add one to forward a domain to a device or app on your network.</td></tr>
+        <tr><td colspan="4" class="p-8 text-center text-fg-muted">There are no Proxy Hosts yet. Add one to forward a domain to a device or app on your network.</td></tr>
       {{end}}
       </tbody>
     </table>

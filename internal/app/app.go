@@ -21,16 +21,21 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	st, err := openStore(s.dataDir)
+	st, err := openStore(s.dataDir, now)
 	if err != nil {
 		return nil, err
 	}
-	w := &web{settings: s, store: st, now: now}
+	w := &web{settings: s, store: st}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", w.list)
 	mux.HandleFunc("GET /proxy-hosts/new", w.newForm)
 	mux.HandleFunc("POST /proxy-hosts", w.create)
+	mux.HandleFunc("GET /proxy-hosts/{id}/edit", w.editForm)
+	mux.HandleFunc("POST /proxy-hosts/{id}", w.update)
+	mux.HandleFunc("DELETE /proxy-hosts/{id}", w.delete)
+	mux.HandleFunc("POST /proxy-hosts/{id}/enable", w.setEnabled(true))
+	mux.HandleFunc("POST /proxy-hosts/{id}/disable", w.setEnabled(false))
 	mux.Handle("GET /static/", staticFiles)
 	mux.HandleFunc("GET /traefik/config", func(rw http.ResponseWriter, r *http.Request) {
 		// Anything short of the full snapshot is a 503, so Traefik keeps its

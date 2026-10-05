@@ -2,6 +2,7 @@ package app
 
 import (
 	"embed"
+	"errors"
 	"html/template"
 	"io/fs"
 	"log"
@@ -29,7 +30,6 @@ var staticFiles = func() http.Handler {
 type web struct {
 	settings settings
 	store    *store
-	now      func() time.Time
 }
 
 // listView is the Proxy Hosts list; OOB marks an htmx out-of-band refresh.
@@ -39,15 +39,19 @@ type listView struct {
 }
 
 // formView is the add/edit modal: the values as typed, plus what blocks Save.
+// ID is 0 for a new host; UpdatedAt is the version the form was opened on.
 type formView struct {
-	Domains, Host, Port string
-	Resolvers           []resolverOption
-	Errors              []string
+	ID                                        int
+	UpdatedAt                                 string
+	Domains, Scheme, Host, Port, CertResolver string
+	Enabled                                   bool
+	Resolvers                                 []resolverOption
+	Errors                                    []string
 }
 
 type resolverOption struct {
-	Name     string
-	Selected bool
+	Name               string
+	Selected, Unlisted bool
 }
 
 func (w *web) list(rw http.ResponseWriter, r *http.Request) {
@@ -55,53 +59,150 @@ func (w *web) list(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *web) newForm(rw http.ResponseWriter, r *http.Request) {
-	render(rw, http.StatusOK, "modal", withResolvers(formView{}, w.settings.certResolvers, w.settings.certResolvers[0]))
+	w.modal(rw, http.StatusOK, formView{Scheme: "http", CertResolver: w.settings.certResolvers[0], Enabled: true})
 }
 
-// withResolvers fills in the Certificate Resolver dropdown, selecting chosen.
-func withResolvers(f formView, resolvers []string, chosen string) formView {
-	for _, name := range resolvers {
-		f.Resolvers = append(f.Resolvers, resolverOption{name, name == chosen})
+func (w *web) editForm(rw http.ResponseWriter, r *http.Request) {
+	h, ok := w.store.get(pathID(r))
+	if !ok {
+		http.NotFound(rw, r)
+		return
 	}
-	return f
+	w.modal(rw, http.StatusOK, formView{
+		ID:           h.ID,
+		UpdatedAt:    h.UpdatedAt.Format(time.RFC3339Nano),
+		Domains:      strings.Join(h.Domains, ", "),
+		Scheme:       h.Forward.Scheme,
+		Host:         h.Forward.Host,
+		Port:         strconv.Itoa(h.Forward.Port),
+		CertResolver: h.CertResolver,
+		Enabled:      h.Enabled,
+	})
+}
+
+// modal renders the add/edit modal, filling in the Certificate Resolver
+// dropdown. A host's resolver that's no longer configured stays selected,
+// flagged, so Save is blocked rather than quietly switching resolvers.
+func (w *web) modal(rw http.ResponseWriter, status int, f formView) {
+	for _, name := range w.settings.certResolvers {
+		f.Resolvers = append(f.Resolvers, resolverOption{Name: name, Selected: name == f.CertResolver})
+	}
+	if f.CertResolver != "" && !slices.Contains(w.settings.certResolvers, f.CertResolver) {
+		f.Resolvers = append(f.Resolvers, resolverOption{f.CertResolver, true, true})
+	}
+	render(rw, status, "modal", f)
 }
 
 func (w *web) create(rw http.ResponseWriter, r *http.Request) {
-	f := formView{Domains: r.FormValue("domains"), Host: r.FormValue("host"), Port: r.FormValue("port")}
-	resolver := r.FormValue("certResolver")
-	h, errs := w.parse(f, r.FormValue("scheme"), resolver)
+	f := readForm(r)
+	h, errs := w.parse(f)
 	if len(errs) > 0 {
 		f.Errors = errs
-		render(rw, http.StatusUnprocessableEntity, "modal", withResolvers(f, w.settings.certResolvers, resolver))
+		w.modal(rw, http.StatusUnprocessableEntity, f)
 		return
 	}
-	h.Enabled = true
 	h.Middlewares = []string{}
-	h.CreatedAt = w.now().UTC()
-	h.UpdatedAt = h.CreatedAt
 	if err := w.store.add(h); err != nil {
 		http.Error(rw, "Couldn't save the Proxy Host: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// An empty #modal closes it; the list refreshes out of band.
+	w.saved(rw)
+}
+
+func (w *web) update(rw http.ResponseWriter, r *http.Request) {
+	f := readForm(r)
+	f.ID = pathID(r)
+	if _, ok := w.store.get(f.ID); !ok {
+		http.NotFound(rw, r)
+		return
+	}
+	edited, errs := w.parse(f)
+	if len(errs) > 0 {
+		f.Errors = errs
+		w.modal(rw, http.StatusUnprocessableEntity, f)
+		return
+	}
+	seen, _ := time.Parse(time.RFC3339Nano, f.UpdatedAt)
+	err := w.store.update(f.ID, &seen, func(h *proxyHost) {
+		h.Domains, h.Forward, h.CertResolver, h.Enabled = edited.Domains, edited.Forward, edited.CertResolver, edited.Enabled
+	})
+	switch {
+	case errors.Is(err, errNotFound):
+		http.NotFound(rw, r)
+	case errors.Is(err, errStale):
+		f.Errors = []string{"This host was changed by someone else; reload."}
+		w.modal(rw, http.StatusConflict, f)
+	case err != nil:
+		http.Error(rw, "Couldn't save the Proxy Host: "+err.Error(), http.StatusInternalServerError)
+	default:
+		w.saved(rw)
+	}
+}
+
+func (w *web) delete(rw http.ResponseWriter, r *http.Request) {
+	w.respondWithList(rw, r, w.store.delete(pathID(r)))
+}
+
+// setEnabled switches a host on or off from its row.
+func (w *web) setEnabled(enabled bool) http.HandlerFunc {
+	return func(rw http.ResponseWriter, r *http.Request) {
+		w.respondWithList(rw, r, w.store.update(pathID(r), nil, func(h *proxyHost) { h.Enabled = enabled }))
+	}
+}
+
+// respondWithList answers a row action with the refreshed list.
+func (w *web) respondWithList(rw http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, errNotFound):
+		http.NotFound(rw, r)
+	case err != nil:
+		http.Error(rw, "Couldn't save the change: "+err.Error(), http.StatusInternalServerError)
+	default:
+		render(rw, http.StatusOK, "hosts", listView{Hosts: w.store.all()})
+	}
+}
+
+// saved answers a successful Save: an empty #modal closes it, and the list
+// refreshes out of band.
+func (w *web) saved(rw http.ResponseWriter) {
 	render(rw, http.StatusOK, "hosts", listView{Hosts: w.store.all(), OOB: true})
+}
+
+// pathID is the Proxy Host ID in the URL; 0, which no host has, if malformed.
+func pathID(r *http.Request) int {
+	id, _ := strconv.Atoi(r.PathValue("id"))
+	return id
+}
+
+// readForm reads the add/edit modal's fields as typed.
+func readForm(r *http.Request) formView {
+	return formView{
+		UpdatedAt:    r.FormValue("updatedAt"),
+		Domains:      r.FormValue("domains"),
+		Scheme:       r.FormValue("scheme"),
+		Host:         r.FormValue("host"),
+		Port:         r.FormValue("port"),
+		CertResolver: r.FormValue("certResolver"),
+		Enabled:      r.FormValue("enabled") != "",
+	}
 }
 
 // parse reads the form into a Proxy Host and returns the messages that
 // block its Save.
-func (w *web) parse(f formView, scheme, resolver string) (proxyHost, []string) {
+func (w *web) parse(f formView) (proxyHost, []string) {
 	port, err := strconv.Atoi(f.Port)
 	if err != nil {
 		port = 0 // reported as out of range
 	}
 	h := proxyHost{
+		Enabled:      f.Enabled,
 		Domains:      strings.Fields(strings.ToLower(strings.ReplaceAll(f.Domains, ",", " "))),
-		Forward:      forward{scheme, f.Host, port},
+		Forward:      forward{f.Scheme, f.Host, port},
 		Exposure:     w.settings.sides[0].name,
-		CertResolver: resolver,
+		CertResolver: f.CertResolver,
 	}
 	errs := h.problems()
-	if !slices.Contains(w.settings.certResolvers, resolver) {
+	if !slices.Contains(w.settings.certResolvers, f.CertResolver) {
 		errs = append(errs, "Pick a Certificate Resolver from the list.")
 	}
 	return h, errs
