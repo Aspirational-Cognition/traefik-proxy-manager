@@ -28,7 +28,9 @@ publish:
         tags=dev
       fi
       args=$(printf -- " -t $CI_REGISTRY_IMAGE:%s" $tags)
-    # One multi-platform builder, kept between runs. The arm64 stage only
-    # copies files, so no emulation is needed.
-    - docker buildx inspect tpm >/dev/null 2>&1 || docker buildx create --name tpm --driver docker-container
-    - docker buildx build --builder tpm --platform linux/amd64,linux/arm64 $args --push .
+    # A fresh builder per job, so no other job on the shared host can poison
+    # its cache. The arm64 stage only copies files, so no emulation is needed.
+    - docker buildx create --name "tpm-$CI_JOB_ID" --driver docker-container
+    - docker buildx build --builder "tpm-$CI_JOB_ID" --platform linux/amd64,linux/arm64 $args --push .
+  after_script:
+    - docker buildx rm -f "tpm-$CI_JOB_ID"
