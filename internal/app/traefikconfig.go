@@ -107,14 +107,14 @@ func generate(hosts []proxyHost, s settings) (snapshot, error) {
 			lb.ServersTransport = skipCertCheckTransport
 			snap.HTTP.ServersTransports[skipCertCheckTransport] = serversTransport{true}
 		}
-		var httpMiddlewares []string
+		httpMiddlewares := h.Middlewares // Force SSL off: http forwards like https
 		if h.ForceSSL {
 			httpMiddlewares = []string{forceSSLMiddleware}
 			snap.HTTP.Middlewares[forceSSLMiddleware] = middleware{redirectScheme{"https", true}}
 		}
 		for _, sd := range s.sidesOf(h) {
 			snap.HTTP.Routers[routerName(h, sd, "http")] = router{EntryPoints: []string{sd.http}, Rule: rule, Middlewares: httpMiddlewares, Service: name}
-			snap.HTTP.Routers[routerName(h, sd, "https")] = router{EntryPoints: []string{sd.https}, Rule: rule, Service: name, TLS: &routerTLS{h.CertResolver}}
+			snap.HTTP.Routers[routerName(h, sd, "https")] = router{EntryPoints: []string{sd.https}, Rule: rule, Middlewares: h.Middlewares, Service: name, TLS: &routerTLS{h.CertResolver}}
 			snap.HTTP.Services[name] = service{lb}
 		}
 	}

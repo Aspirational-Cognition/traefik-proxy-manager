@@ -7,6 +7,7 @@
 <title>Proxy Hosts · tpm</title>
 <link rel="stylesheet" href="/static/app.css">
 <script src="/static/htmx.min.js"></script>
+<script src="/static/app.js" defer></script>
 </head>
 <body class="min-h-screen bg-canvas text-fg">
 <div class="max-w-6xl mx-auto p-6 pb-24">
@@ -25,7 +26,7 @@
   <div hx-get="/proxy-hosts/status" hx-trigger="every 5s" hx-swap="none"></div>
   <div class="bg-surface rounded border border-line overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="text-left text-xs uppercase text-fg-muted"><tr><th class="p-3">Source</th><th class="p-3">Destination</th><th class="p-3">Exposure</th><th class="p-3">SSL</th><th class="p-3">Status</th><th></th></tr></thead>
+      <thead class="text-left text-xs uppercase text-fg-muted"><tr><th class="p-3">Source</th><th class="p-3">Destination</th><th class="p-3">Exposure</th><th class="p-3">SSL</th><th class="p-3">Access</th><th class="p-3">Status</th><th></th></tr></thead>
       <tbody>
       {{range .Hosts}}
         <tr class="border-t border-line hover:bg-raised/50{{if not .Enabled}} opacity-50{{end}}">
@@ -33,6 +34,7 @@
           <td class="p-3 font-mono text-xs text-fg-soft">{{.Forward.URL}}{{if .SkipCertCheck}} <span title="Certificate check skipped" class="text-warn">⚠︎</span>{{end}}</td>
           <td class="p-3">{{template "exposure-badge" .Exposure}}</td>
           <td class="p-3 text-xs text-fg-soft">{{if .ForceSSL}}🔒 Force SSL{{else}}HTTP allowed{{end}}<div class="text-fg-muted">{{.CertResolver}}</div></td>
+          <td class="p-3">{{range .AccessRules}}<span class="inline-block bg-raised text-fg-soft rounded px-2 py-0.5 text-xs mr-1 mb-1">{{.}}</span>{{end}}</td>
           <td class="p-3 text-xs text-fg-soft"><div id="status-{{.ID}}">{{template "status" .Status}}</div></td>
           <td class="p-3 text-right whitespace-nowrap text-xs space-x-2">
             <button hx-get="/proxy-hosts/{{.ID}}/edit" hx-target="#modal" class="text-link hover:underline">Edit</button>
@@ -41,7 +43,7 @@
           </td>
         </tr>
       {{else}}
-        <tr><td colspan="6" class="p-8 text-center text-fg-muted">There are no Proxy Hosts yet. Add one to forward a domain to a device or app on your network.</td></tr>
+        <tr><td colspan="7" class="p-8 text-center text-fg-muted">There are no Proxy Hosts yet. Add one to forward a domain to a device or app on your network.</td></tr>
       {{end}}
       </tbody>
     </table>

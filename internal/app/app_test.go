@@ -286,13 +286,14 @@ func TestListPageUsesEmbeddedAssetsOnly(t *testing.T) {
 
 	page := get(t, a, "/")
 
-	assertContains(t, page, "Proxy Hosts", "Add Proxy Host", `hx-get="/proxy-hosts/new"`, `src="/static/htmx.min.js"`, `href="/static/app.css"`)
+	assertContains(t, page, "Proxy Hosts", "Add Proxy Host", `hx-get="/proxy-hosts/new"`, `src="/static/htmx.min.js"`, `src="/static/app.js"`, `href="/static/app.css"`)
 	if strings.Contains(page, "://cdn") || strings.Contains(page, "unpkg") {
 		t.Errorf("page loads from a CDN:\n%s", page)
 	}
 	if !strings.HasPrefix(get(t, a, "/static/htmx.min.js"), "var htmx=") {
 		t.Error("htmx isn't served from /static")
 	}
+	assertContains(t, get(t, a, "/static/app.js"), "data-access")
 }
 
 func TestAddModalOffersDomainsTargetAndResolver(t *testing.T) {

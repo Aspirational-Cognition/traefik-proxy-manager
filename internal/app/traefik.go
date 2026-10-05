@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,13 +29,36 @@ type traefikAPI struct {
 
 // liveTraefik is what Traefik reports, as of one refresh.
 type liveTraefik struct {
-	routers map[string]apiRouter // by name, e.g. host-1-internal-http@http
+	routers     map[string]apiRouter // by name, e.g. host-1-internal-http@http
+	middlewares map[string]string    // type by name, e.g. authentik@docker: forwardAuth
 }
 
 type apiRouter struct {
 	Name   string   `json:"name"`
 	Status string   `json:"status"` // enabled, warning or disabled
 	Error  []string `json:"error"`
+}
+
+// apiMiddleware is one Middleware: its name and type.
+type apiMiddleware struct {
+	Name, Type string
+}
+
+// UnmarshalJSON reads a Middleware's name and type. Traefik lowercases the
+// type (forwardauth), so it's taken from the config's key (forwardAuth).
+func (m *apiMiddleware) UnmarshalJSON(b []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(b, &fields); err != nil {
+		return err
+	}
+	json.Unmarshal(fields["name"], &m.Name)
+	json.Unmarshal(fields["type"], &m.Type)
+	for key := range fields {
+		if strings.EqualFold(key, m.Type) {
+			m.Type = key
+		}
+	}
+	return nil
 }
 
 func newTraefikAPI(base *url.URL, now func() time.Time) *traefikAPI {
@@ -58,9 +82,16 @@ func (t *traefikAPI) fetch() (liveTraefik, error) {
 	if err != nil {
 		return liveTraefik{}, err
 	}
-	live := liveTraefik{routers: map[string]apiRouter{}}
+	middlewares, err := getAll[apiMiddleware](t, "api/http/middlewares")
+	if err != nil {
+		return liveTraefik{}, err
+	}
+	live := liveTraefik{routers: map[string]apiRouter{}, middlewares: map[string]string{}}
 	for _, r := range routers {
 		live.routers[r.Name] = r
+	}
+	for _, m := range middlewares {
+		live.middlewares[m.Name] = m.Type
 	}
 	return live, nil
 }

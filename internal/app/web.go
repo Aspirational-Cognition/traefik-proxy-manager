@@ -2,6 +2,7 @@ package app
 
 import (
 	"embed"
+	"encoding/json"
 	"errors"
 	"html/template"
 	"io/fs"
@@ -15,12 +16,12 @@ import (
 
 // app.css must exist: `make css` builds it before any go build or test.
 //
-//go:embed web/templates web/static/htmx.min.js web/static/app.css
+//go:embed web/templates web/static/htmx.min.js web/static/app.js web/static/app.css
 var assets embed.FS
 
 var templates = template.Must(template.ParseFS(assets, "web/templates/*.html"))
 
-// staticFiles serves the vendored htmx and the Tailwind-built CSS.
+// staticFiles serves the vendored htmx, tpm's script and the Tailwind-built CSS.
 var staticFiles = func() http.Handler {
 	sub, _ := fs.Sub(assets, "web/static")
 	return http.StripPrefix("/static/", http.FileServerFS(sub))
@@ -54,9 +55,13 @@ type formView struct {
 	UpdatedAt                                 string
 	Domains, Scheme, Host, Port, CertResolver string
 	Exposure                                  string
+	Access                                    []string // the picked Access rules, fully qualified
 	ForceSSL, SkipCertCheck, Enabled          bool
 	Exposures                                 []exposureOption // none when the install has one side
 	Resolvers                                 []resolverOption
+	AccessRules                               []accessOption
+	Defaults                                  string   // each Exposure's default Access rules, as JSON
+	AccessUnknown                             bool     // Traefik can't be reached to list Access rules
 	Problems                                  []string // Traefik's, for a host in Error
 	Errors                                    []string
 }
@@ -73,6 +78,12 @@ var exposures = []exposureOption{
 	{Value: "both", Label: "Both", Hint: "Reachable from your network and the internet"},
 }
 
+// accessOption is one Access rule in the modal's checklist.
+type accessOption struct {
+	Value, Name, Type         string // fully qualified; without @provider; e.g. forwardAuth
+	Checked, Default, Missing bool
+}
+
 type resolverOption struct {
 	Name               string
 	Selected, Unlisted bool
@@ -85,7 +96,7 @@ func (w *web) list(rw http.ResponseWriter, r *http.Request) {
 // newForm opens a blank modal. Sides list Internal first, so a new host
 // defaults to Internal and nothing is exposed to the internet by accident.
 func (w *web) newForm(rw http.ResponseWriter, r *http.Request) {
-	w.modal(rw, http.StatusOK, formView{Scheme: "http", Exposure: w.settings.sides[0].name, ForceSSL: true, CertResolver: w.settings.certResolvers[0], Enabled: true})
+	w.modal(rw, http.StatusOK, formView{Scheme: "http", Exposure: w.settings.sides[0].name, Access: w.settings.defaultsFor(w.settings.sides[0].name), ForceSSL: true, CertResolver: w.settings.certResolvers[0], Enabled: true})
 }
 
 func (w *web) editForm(rw http.ResponseWriter, r *http.Request) {
@@ -108,6 +119,7 @@ func (w *web) editForm(rw http.ResponseWriter, r *http.Request) {
 		Host:          h.Forward.Host,
 		Port:          strconv.Itoa(h.Forward.Port),
 		Exposure:      h.Exposure,
+		Access:        h.Middlewares,
 		ForceSSL:      h.ForceSSL,
 		SkipCertCheck: h.SkipCertCheck,
 		CertResolver:  h.CertResolver,
@@ -132,7 +144,46 @@ func (w *web) modal(rw http.ResponseWriter, status int, f formView) {
 	if f.CertResolver != "" && !slices.Contains(w.settings.certResolvers, f.CertResolver) {
 		f.Resolvers = append(f.Resolvers, resolverOption{f.CertResolver, true, true})
 	}
+	w.accessPicker(&f)
 	render(rw, status, "modal", f)
+}
+
+// accessPicker fills in the Access checklist: the picked rules in order, then
+// every Middleware Traefik lists and, when there's an Exposure to change,
+// the other Exposures' defaults for the script to swap in. A picked rule
+// Traefik doesn't list stays ticked, flagged missing, so the user can untick
+// it on purpose. Without Traefik, only those picks and defaults show.
+func (w *web) accessPicker(f *formView) {
+	live, err := w.traefik.state()
+	f.AccessUnknown = err != nil
+	byExposure := map[string][]string{f.Exposure: w.settings.defaultsFor(f.Exposure)}
+	var others []string
+	for _, e := range f.Exposures {
+		byExposure[e.Value] = w.settings.defaultsFor(e.Value)
+		others = append(others, byExposure[e.Value]...)
+	}
+	for name := range live.middlewares {
+		if name != forceSSLMiddleware+"@http" { // tpm's own, not an Access rule
+			others = append(others, name)
+		}
+	}
+	slices.Sort(others)
+	defaults, _ := json.Marshal(byExposure)
+	f.Defaults = string(defaults)
+	var seen []string
+	for _, m := range append(slices.Clone(f.Access), others...) {
+		if slices.Contains(seen, m) {
+			continue
+		}
+		seen = append(seen, m)
+		typ, listed := live.middlewares[m]
+		f.AccessRules = append(f.AccessRules, accessOption{
+			Value: m, Name: accessRuleName(m), Type: typ,
+			Checked: slices.Contains(f.Access, m), Default: slices.Contains(byExposure[f.Exposure], m),
+		})
+		last := &f.AccessRules[len(f.AccessRules)-1]
+		last.Missing = last.Checked && err == nil && !listed
+	}
 }
 
 func (w *web) create(rw http.ResponseWriter, r *http.Request) {
@@ -146,7 +197,6 @@ func (w *web) create(rw http.ResponseWriter, r *http.Request) {
 		w.modal(rw, http.StatusUnprocessableEntity, f)
 		return
 	}
-	h.Middlewares = []string{}
 	if err := w.store.add(h); err != nil {
 		http.Error(rw, "Couldn't save the Proxy Host: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -174,7 +224,7 @@ func (w *web) update(rw http.ResponseWriter, r *http.Request) {
 	seen, _ := time.Parse(time.RFC3339Nano, f.UpdatedAt)
 	err := w.store.update(f.ID, &seen, func(h *proxyHost) {
 		// The form carries every other field; the store stamps updatedAt.
-		edited.ID, edited.Middlewares, edited.CreatedAt = h.ID, h.Middlewares, h.CreatedAt
+		edited.ID, edited.CreatedAt = h.ID, h.CreatedAt
 		*h = edited
 	})
 	switch {
@@ -227,6 +277,7 @@ func pathID(r *http.Request) int {
 
 // readForm reads the add/edit modal's fields as typed.
 func readForm(r *http.Request) formView {
+	r.ParseForm() // so r.Form is filled however the fields below are evaluated
 	return formView{
 		UpdatedAt:     r.FormValue("updatedAt"),
 		Domains:       r.FormValue("domains"),
@@ -238,6 +289,7 @@ func readForm(r *http.Request) formView {
 		SkipCertCheck: r.FormValue("skipCertCheck") != "",
 		CertResolver:  r.FormValue("certResolver"),
 		Enabled:       r.FormValue("enabled") != "",
+		Access:        r.Form["access"],
 	}
 }
 
@@ -256,12 +308,29 @@ func (w *web) parse(f formView) (proxyHost, []string) {
 		ForceSSL:      f.ForceSSL,
 		SkipCertCheck: f.SkipCertCheck && f.Scheme == "https", // the toggle only shows for https
 		CertResolver:  f.CertResolver,
+		Middlewares:   w.settings.accessList(f.Exposure, f.Access),
 	}
 	errs := h.problems()
 	if !slices.Contains(w.settings.certResolvers, f.CertResolver) {
 		errs = append(errs, "Pick a Certificate Resolver from the list.")
 	}
 	return h, errs
+}
+
+// AccessRules are h's Access rules as users see them, in the order they apply.
+func (h proxyHost) AccessRules() []string {
+	var names []string
+	for _, m := range h.Middlewares {
+		names = append(names, accessRuleName(m))
+	}
+	return names
+}
+
+// accessRuleName is a Middleware's Traefik name without @provider, as users
+// see it, e.g. authentik for authentik@docker.
+func accessRuleName(middleware string) string {
+	name, _, _ := strings.Cut(middleware, "@")
+	return name
 }
 
 func render(rw http.ResponseWriter, status int, name string, data any) {

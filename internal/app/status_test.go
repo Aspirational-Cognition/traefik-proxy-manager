@@ -31,14 +31,24 @@ type fakeRouter struct {
 	Error  []string `json:"error,omitempty"`
 }
 
+// fakeMiddleware is one Middleware as Traefik's API reports it, config included.
+type fakeMiddleware map[string]any
+
+// forwardAuth is how Traefik reports a forwardAuth Middleware: its type
+// lowercased, its config under the camelCase key.
+func forwardAuth(name string) fakeMiddleware {
+	return fakeMiddleware{"name": name, "type": "forwardauth", "status": "enabled", "forwardAuth": map[string]any{"address": "http://auth:9000"}}
+}
+
 // fakeTraefik is Traefik's API as each test sets it up.
 type fakeTraefik struct {
-	mu       sync.Mutex
-	routers  []fakeRouter
-	pageSize int    // 0: everything on one page
-	password string // if set, basic auth as admin is required
-	requests int
-	srv      *httptest.Server
+	mu          sync.Mutex
+	routers     []fakeRouter
+	middlewares []fakeMiddleware
+	pageSize    int    // 0: everything on one page
+	password    string // if set, basic auth as admin is required
+	requests    int
+	srv         *httptest.Server
 }
 
 func newFakeTraefik(t *testing.T) *fakeTraefik {
@@ -50,34 +60,47 @@ func newFakeTraefik(t *testing.T) *fakeTraefik {
 
 func (f *fakeTraefik) set(routers ...fakeRouter) { f.mu.Lock(); f.routers = routers; f.mu.Unlock() }
 
+func (f *fakeTraefik) setMiddlewares(ms ...fakeMiddleware) {
+	f.mu.Lock()
+	f.middlewares = ms
+	f.mu.Unlock()
+}
+
 func (f *fakeTraefik) requestCount() int { f.mu.Lock(); defer f.mu.Unlock(); return f.requests }
 
 func (f *fakeTraefik) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if r.URL.Path != "/api/http/routers" {
+	switch r.URL.Path {
+	case "/api/http/routers":
+		serveList(f, w, r, f.routers)
+	case "/api/http/middlewares":
+		serveList(f, w, r, f.middlewares)
+	default:
 		http.NotFound(w, r)
-		return
 	}
+}
+
+// serveList answers one page of an API list. The caller holds f.mu.
+func serveList[T any](f *fakeTraefik, w http.ResponseWriter, r *http.Request, items []T) {
 	f.requests++
 	if user, pass, _ := r.BasicAuth(); f.password != "" && (user != "admin" || pass != f.password) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	routers := f.routers
 	size := f.pageSize
 	if size == 0 {
-		size = max(len(routers), 1)
+		size = max(len(items), 1)
 	}
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	page = max(page, 1)
-	start, end := min((page-1)*size, len(routers)), min(page*size, len(routers))
+	start, end := min((page-1)*size, len(items)), min(page*size, len(items))
 	next := 1 // Traefik's way of saying "last page"
-	if end < len(routers) {
+	if end < len(items) {
 		next = page + 1
 	}
 	w.Header().Set("X-Next-Page", strconv.Itoa(next))
-	json.NewEncoder(w).Encode(append([]fakeRouter{}, routers[start:end]...))
+	json.NewEncoder(w).Encode(append([]T{}, items[start:end]...))
 }
 
 // loaded is how Traefik reports routers it loaded fine.
@@ -265,13 +288,14 @@ func TestEveryViewerSharesOneBatchOfTraefikCalls(t *testing.T) {
 		get(t, a, "/")
 	}
 
-	if n := traefik.requestCount() - before; n != 1 {
-		t.Fatalf("Traefik API calls for three viewers of three hosts = %d, want 1", n)
+	// One batch is one call each for routers and Middlewares.
+	if n := traefik.requestCount() - before; n != 2 {
+		t.Fatalf("Traefik API calls for three viewers of three hosts = %d, want 2", n)
 	}
 	clk.advance(5 * time.Second)
 	get(t, a, "/")
-	if n := traefik.requestCount() - before; n != 2 {
-		t.Fatalf("Traefik API calls after the cache expired = %d, want 2", n)
+	if n := traefik.requestCount() - before; n != 4 {
+		t.Fatalf("Traefik API calls after the cache expired = %d, want 4", n)
 	}
 }
 

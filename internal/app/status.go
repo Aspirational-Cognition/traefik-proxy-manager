@@ -72,12 +72,18 @@ func (w *web) status(h proxyHost, live liveTraefik, liveErr error) hostStatus {
 	return st
 }
 
-var missingEntrypoint = regexp.MustCompile(`^entryPoint "(.+)" doesn't exist$`)
+var (
+	missingEntrypoint = regexp.MustCompile(`^entryPoint "(.+)" doesn't exist$`)
+	missingMiddleware = regexp.MustCompile(`^middleware "(.+)" does not exist$`)
+)
 
 // reword puts a Traefik error in plain words, or shows it raw.
 func reword(err string) string {
 	if m := missingEntrypoint.FindStringSubmatch(err); m != nil {
 		return fmt.Sprintf("Traefik has no entrypoint '%s'. Check tpm's settings.", m[1])
+	}
+	if m := missingMiddleware.FindStringSubmatch(err); m != nil {
+		return fmt.Sprintf("Access rule '%s' no longer exists in Traefik", accessRuleName(m[1]))
 	}
 	return "Traefik said: " + err
 }

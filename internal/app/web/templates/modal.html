@@ -62,6 +62,23 @@
         </div>
       </section>
 
+      <section class="mt-5">
+        <h3 class="text-xs uppercase tracking-wide text-fg-muted mb-2">Access</h3>
+        {{if .AccessUnknown}}<div class="text-xs text-warn mb-2">Can't reach Traefik to list Access rules</div>{{end}}
+        <div data-access data-exposure="{{.Exposure}}" data-defaults="{{.Defaults}}" class="border border-line rounded divide-y divide-line">
+          {{range .AccessRules}}
+          <label{{if and .Checked (not .Default)}} data-picked="yes"{{end}} class="flex items-center gap-2 px-4 py-2 text-sm cursor-pointer">
+            <input type="checkbox" name="access" value="{{.Value}}"{{if .Checked}} checked{{end}} class="accent-accent">
+            <span>{{.Name}}{{with .Type}} · {{.}}{{end}}</span>
+            <span data-default{{if not .Default}} hidden{{end}} class="rounded px-1.5 text-xs bg-raised text-fg-soft">default</span>
+            {{if .Missing}}<span class="rounded px-1.5 text-xs bg-danger/15 text-danger">missing</span>{{end}}
+          </label>
+          {{else}}
+          <div class="px-4 py-3 text-sm text-fg-muted">There are no Access rules in Traefik yet.</div>
+          {{end}}
+        </div>
+      </section>
+
       <label class="flex items-center gap-2 mt-5 text-sm"><input type="checkbox" name="enabled"{{if .Enabled}} checked{{end}} class="accent-accent"> Enabled</label>
     </div>
     <div class="px-5 py-3 border-t border-line flex justify-end gap-2">
