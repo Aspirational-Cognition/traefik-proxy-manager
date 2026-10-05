@@ -1,5 +1,8 @@
 # Traefik Proxy Manager (tpm)
 
+[![main pipeline](https://gitlab.example.com/home/devops/traefik-proxy-manager/badges/main/pipeline.svg?key_text=main)](https://gitlab.example.com/home/devops/traefik-proxy-manager/-/pipelines?ref=main)
+[![dev pipeline](https://gitlab.example.com/home/devops/traefik-proxy-manager/badges/dev/pipeline.svg?key_text=dev)](https://gitlab.example.com/home/devops/traefik-proxy-manager/-/pipelines?ref=dev)
+
 ## Description
 
 Traefik proxy manager is an homage to [nginx proxy manager](https://github.com/NginxProxyManager/nginx-proxy-manager)
@@ -14,9 +17,15 @@ GUI to keep everything in one proxy system and get the otel stuff for free. Howe
 it was deemed too complicated and confusing to the people already using the existing system.
 
 
-## Badges
-
 ## Visuals
+
+The Proxy Hosts list, with each host's live Status and a Domain Clash flagged:
+
+![The Proxy Hosts list](docs/screenshots/proxy-hosts.png)
+
+Editing a Proxy Host whose domain a Docker-labelled route also serves:
+
+![Editing a Proxy Host](docs/screenshots/edit-proxy-host.png)
 
 ## Installation
 
@@ -164,16 +173,7 @@ docker compose start tpm
 A restored file may carry a lower `nextId` than the Proxy Hosts it holds. That's fine: tpm never hands out an ID
 already in the file.
 
-## Usage
-
-## Support
-
-## Roadmap
-
-## Contributing
-
-## Authors and acknowledgment
-
 ## License
-MIT
+
+[MIT](LICENSE)
 
