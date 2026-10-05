@@ -29,9 +29,13 @@ A certificate source already configured in Traefik that a Proxy Host can use for
 _Avoid_: SSL certificate, cert
 
 **Middleware**:
-A request-handling rule already defined in Traefik (e.g. Authentik forward-auth) that a Proxy Host can opt into. tpm selects existing ones; it never defines them.
+A request-handling rule already defined in Traefik (e.g. Authentik forward-auth) that a Proxy Host can opt into. tpm selects existing ones; it never defines them. Users see each one as an **Access rule**, picked in the form's Access section.
 _Avoid_: Access list, plugin
 
 **Domain Clash**:
 A domain on an enabled Proxy Host that another enabled Proxy Host, or a Label Route, also answers on a shared entrypoint (the same Exposure side). tpm warns but never blocks.
 _Avoid_: Conflict, duplicate, collision
+
+**Status**:
+Whether a Proxy Host is actually live, as Traefik reports it: **Online**, **Warning**, **Error**, **Pending** (not loaded by Traefik yet), **Unknown** (Traefik can't be reached), or **Disabled** (switched off in tpm). A Domain Clash is flagged alongside the Status, not as one of its values.
+_Avoid_: Health, state
