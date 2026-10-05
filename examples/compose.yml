@@ -1,0 +1,35 @@
+# The tpm service, to copy into the compose project that runs Traefik.
+# Replace the example network, entrypoints, Certificate Resolvers, domain
+# and Access rule with your own; see the README for every TPM_* setting.
+services:
+  tpm:
+    image: registry.example.com:443/home/devops/traefik-proxy-manager:latest
+    restart: unless-stopped
+    networks:
+      - proxy # Traefik's network: Traefik polls tpm, and tpm reads Traefik's API
+    volumes:
+      - tpm-data:/data
+    environment:
+      TPM_TRAEFIK_API_URL: http://traefik:8080
+      TPM_ENTRYPOINT_INTERNAL_HTTP: web-int
+      TPM_ENTRYPOINT_INTERNAL_HTTPS: websecure-int
+      TPM_ENTRYPOINT_EXTERNAL_HTTP: web
+      TPM_ENTRYPOINT_EXTERNAL_HTTPS: websecure
+      TPM_CERT_RESOLVERS: le-dns,le-http
+      TPM_DEFAULT_MIDDLEWARES_EXTERNAL: authentik@docker
+    # tpm's own UI, internal only and behind Authentik.
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.tpm.rule=Host(`tpm.example.com`)
+      - traefik.http.routers.tpm.entrypoints=websecure-int
+      - traefik.http.routers.tpm.tls.certresolver=le-dns
+      - traefik.http.routers.tpm.middlewares=authentik@docker
+      - traefik.http.services.tpm.loadbalancer.server.port=8080
+
+# Merge these into your project's own top-level keys.
+volumes:
+  tpm-data:
+
+networks:
+  proxy:
+    external: true # or however your project already declares Traefik's network
