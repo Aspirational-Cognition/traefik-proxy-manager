@@ -31,6 +31,7 @@ type traefikAPI struct {
 type liveTraefik struct {
 	routers     map[string]apiRouter // by name, e.g. host-1-internal-http@http
 	middlewares map[string]string    // type by name, e.g. authentik@docker: forwardAuth
+	entrypoints map[string]bool      // by name, e.g. websecure
 	sans        map[string]bool      // every certificate's SANs, lowercased; nil when Traefik can't list them
 }
 
@@ -91,10 +92,14 @@ func (t *traefikAPI) fetch() (liveTraefik, error) {
 	if err != nil {
 		return liveTraefik{}, err
 	}
+	entrypoints, err := getAll[struct{ Name string }](t, "api/entrypoints")
+	if err != nil {
+		return liveTraefik{}, err
+	}
 	// Traefik older than 3.7 has no /api/certificates (404); without it, or
 	// on any failure reading it, the certificate check is skipped.
 	certs, err := getAll[apiCertificate](t, "api/certificates")
-	live := liveTraefik{routers: map[string]apiRouter{}, middlewares: map[string]string{}}
+	live := liveTraefik{routers: map[string]apiRouter{}, middlewares: map[string]string{}, entrypoints: map[string]bool{}}
 	if err == nil {
 		live.sans = map[string]bool{}
 	}
@@ -108,6 +113,9 @@ func (t *traefikAPI) fetch() (liveTraefik, error) {
 	}
 	for _, m := range middlewares {
 		live.middlewares[m.Name] = m.Type
+	}
+	for _, e := range entrypoints {
+		live.entrypoints[e.Name] = true
 	}
 	return live, nil
 }

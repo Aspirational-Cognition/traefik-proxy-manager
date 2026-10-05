@@ -41,6 +41,11 @@ func forwardAuth(name string) fakeMiddleware {
 	return fakeMiddleware{"name": name, "type": "forwardauth", "status": "enabled", "forwardAuth": map[string]any{"address": "http://auth:9000"}}
 }
 
+// fakeEntrypoint is one entrypoint as Traefik's API reports it.
+type fakeEntrypoint struct {
+	Name string `json:"name"`
+}
+
 // fakeCert is one certificate as Traefik's API reports it.
 type fakeCert struct {
 	SANs []string `json:"sans"`
@@ -51,6 +56,7 @@ type fakeTraefik struct {
 	mu           sync.Mutex
 	routers      []fakeRouter
 	middlewares  []fakeMiddleware
+	entrypoints  []fakeEntrypoint
 	certificates []fakeCert // nil: Traefik older than 3.7, with no /api/certificates
 	pageSize     int        // 0: everything on one page
 	password     string     // if set, basic auth as admin is required
@@ -73,6 +79,15 @@ func (f *fakeTraefik) setMiddlewares(ms ...fakeMiddleware) {
 	f.mu.Unlock()
 }
 
+func (f *fakeTraefik) setEntrypoints(names ...string) {
+	f.mu.Lock()
+	f.entrypoints = nil
+	for _, n := range names {
+		f.entrypoints = append(f.entrypoints, fakeEntrypoint{n})
+	}
+	f.mu.Unlock()
+}
+
 func (f *fakeTraefik) setCertificates(cs ...fakeCert) {
 	f.mu.Lock()
 	f.certificates = append([]fakeCert{}, cs...)
@@ -89,6 +104,8 @@ func (f *fakeTraefik) serve(w http.ResponseWriter, r *http.Request) {
 		serveList(f, w, r, f.routers)
 	case "/api/http/middlewares":
 		serveList(f, w, r, f.middlewares)
+	case "/api/entrypoints":
+		serveList(f, w, r, f.entrypoints)
 	case "/api/certificates":
 		if f.certificates == nil {
 			http.NotFound(w, r)
@@ -413,14 +430,14 @@ func TestEveryViewerSharesOneBatchOfTraefikCalls(t *testing.T) {
 		get(t, a, "/")
 	}
 
-	// One batch is one call each for routers and Middlewares.
-	if n := traefik.requestCount() - before; n != 2 {
-		t.Fatalf("Traefik API calls for three viewers of three hosts = %d, want 2", n)
+	// One batch is one call each for routers, Middlewares and entrypoints.
+	if n := traefik.requestCount() - before; n != 3 {
+		t.Fatalf("Traefik API calls for three viewers of three hosts = %d, want 3", n)
 	}
 	clk.advance(5 * time.Second)
 	get(t, a, "/")
-	if n := traefik.requestCount() - before; n != 4 {
-		t.Fatalf("Traefik API calls after the cache expired = %d, want 4", n)
+	if n := traefik.requestCount() - before; n != 6 {
+		t.Fatalf("Traefik API calls after the cache expired = %d, want 6", n)
 	}
 }
 

@@ -36,10 +36,12 @@ type web struct {
 	now      func() time.Time
 }
 
-// listView is the Proxy Hosts list; OOB marks an htmx out-of-band refresh.
+// listView is the Proxy Hosts list under its global banners; OOB marks an
+// htmx out-of-band refresh.
 type listView struct {
-	Hosts []hostRow
-	OOB   bool
+	Hosts   []hostRow
+	Banners []string
+	OOB     bool
 }
 
 // hostRow is one row of the list: the stored host and its live Status.
@@ -90,7 +92,7 @@ type resolverOption struct {
 }
 
 func (w *web) list(rw http.ResponseWriter, r *http.Request) {
-	render(rw, http.StatusOK, "list.html", listView{Hosts: w.rows()})
+	render(rw, http.StatusOK, "list.html", listView{Hosts: w.rows(), Banners: w.banners()})
 }
 
 // newForm opens a blank modal. Sides list Internal first, so a new host

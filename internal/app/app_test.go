@@ -281,6 +281,15 @@ func assertContains(t *testing.T, body string, wants ...string) {
 	}
 }
 
+func assertNotContains(t *testing.T, body string, unwanted ...string) {
+	t.Helper()
+	for _, u := range unwanted {
+		if strings.Contains(body, u) {
+			t.Errorf("unexpected %q in:\n%s", u, body)
+		}
+	}
+}
+
 func TestListPageUsesEmbeddedAssetsOnly(t *testing.T) {
 	a := newApp(t, internalOnly(t.TempDir()))
 
