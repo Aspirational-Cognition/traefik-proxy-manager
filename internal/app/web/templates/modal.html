@@ -27,6 +27,21 @@
         </div>
       </section>
 
+      {{with .Exposures}}
+      <section class="mt-5">
+        <h3 class="text-xs uppercase tracking-wide text-fg-muted mb-2">Who can reach it</h3>
+        <div class="grid grid-cols-3 gap-2">
+          {{range .}}
+          <label class="rounded-lg border-2 border-line-strong hover:border-fg-faint has-checked:border-accent-hover has-checked:bg-accent-hover/10 has-focus-visible:ring-2 has-focus-visible:ring-accent-hover p-3 cursor-pointer">
+            <input type="radio" name="exposure" value="{{.Value}}"{{if .Checked}} checked{{end}} class="sr-only">
+            <div class="font-medium">{{.Label}}</div>
+            <div class="text-xs text-fg-muted">{{.Hint}}</div>
+          </label>
+          {{end}}
+        </div>
+      </section>
+      {{end}}
+
       <section class="mt-5">
         <h3 class="text-xs uppercase tracking-wide text-fg-muted mb-2">HTTPS</h3>
         <div class="flex items-center gap-6 border border-line rounded px-4 py-3">

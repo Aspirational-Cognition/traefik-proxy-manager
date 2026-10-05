@@ -22,4 +22,10 @@
   --color-danger: #f87171;
   --color-link: #38bdf8;
   --color-scrim: #000000;
+  --color-internal: #0ea5e9;
+  --color-internal-soft: #7dd3fc;
+  --color-external: #8b5cf6;
+  --color-external-soft: #c4b5fd;
+  --color-both: #f59e0b;
+  --color-both-soft: #fcd34d;
 }

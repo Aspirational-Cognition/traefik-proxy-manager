@@ -24,12 +24,13 @@
   </div>
   <div class="bg-surface rounded border border-line overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="text-left text-xs uppercase text-fg-muted"><tr><th class="p-3">Source</th><th class="p-3">Destination</th><th class="p-3">Status</th><th></th></tr></thead>
+      <thead class="text-left text-xs uppercase text-fg-muted"><tr><th class="p-3">Source</th><th class="p-3">Destination</th><th class="p-3">Exposure</th><th class="p-3">Status</th><th></th></tr></thead>
       <tbody>
       {{range .Hosts}}
         <tr class="border-t border-line hover:bg-raised/50{{if not .Enabled}} opacity-50{{end}}">
           <td class="p-3">{{range .Domains}}<span class="inline-block bg-raised text-fg rounded px-2 py-0.5 text-xs mr-1 mb-1">{{.}}</span>{{end}}</td>
           <td class="p-3 font-mono text-xs text-fg-soft">{{.Forward.URL}}</td>
+          <td class="p-3">{{template "exposure-badge" .Exposure}}</td>
           <td class="p-3 text-xs text-fg-soft">{{if not .Enabled}}<span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-fg-muted"></span>Disabled</span>{{end}}</td>
           <td class="p-3 text-right whitespace-nowrap text-xs space-x-2">
             <button hx-get="/proxy-hosts/{{.ID}}/edit" hx-target="#modal" class="text-link hover:underline">Edit</button>
@@ -38,10 +39,17 @@
           </td>
         </tr>
       {{else}}
-        <tr><td colspan="4" class="p-8 text-center text-fg-muted">There are no Proxy Hosts yet. Add one to forward a domain to a device or app on your network.</td></tr>
+        <tr><td colspan="5" class="p-8 text-center text-fg-muted">There are no Proxy Hosts yet. Add one to forward a domain to a device or app on your network.</td></tr>
       {{end}}
       </tbody>
     </table>
   </div>
 </div>
 {{end}}
+
+{{define "exposure-badge"}}
+{{- if eq . "internal"}}<span class="inline-block rounded px-2 py-0.5 text-xs font-medium bg-internal/15 text-internal-soft">Internal</span>
+{{- else if eq . "external"}}<span class="inline-block rounded px-2 py-0.5 text-xs font-medium bg-external/15 text-external-soft">External</span>
+{{- else if eq . "both"}}<span class="inline-block rounded px-2 py-0.5 text-xs font-medium bg-both/15 text-both-soft">Both</span>
+{{- end}}
+{{- end}}

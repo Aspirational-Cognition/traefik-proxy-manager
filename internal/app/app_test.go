@@ -660,3 +660,115 @@ func TestInvalidEditOfUnknownHostIsNotFound(t *testing.T) {
 		t.Fatalf("POST /proxy-hosts/7 = %d, want 404", rec.Code)
 	}
 }
+
+// internalAndExternal is an install that configures Internal and External.
+func internalAndExternal(dataDir string) map[string]string {
+	env := internalOnly(dataDir)
+	env["TPM_ENTRYPOINT_EXTERNAL_HTTP"] = "web"
+	env["TPM_ENTRYPOINT_EXTERNAL_HTTPS"] = "websecure"
+	return env
+}
+
+func TestBothSidesInstallOffersExposureCardsDefaultingToInternal(t *testing.T) {
+	a := newApp(t, internalAndExternal(t.TempDir()))
+
+	modal := get(t, a, "/proxy-hosts/new")
+
+	assertContains(t, modal, "Who can reach it",
+		`value="internal" checked`, "Internal", "Reachable from your network only",
+		`value="external"`, "External", "Reachable from the internet only",
+		`value="both"`, "Both", "Reachable from your network and the internet")
+	if strings.Count(modal, " checked") != 2 { // Internal and Enabled
+		t.Errorf("want only Internal and Enabled checked:\n%s", modal)
+	}
+}
+
+func TestExposureDecidesWhichSidesServeTheHost(t *testing.T) {
+	for exposure, want := range map[string]map[string]string{
+		"internal": {"host-1-internal-http": "web-int", "host-1-internal-https": "websecure-int"},
+		"external": {"host-1-external-http": "web", "host-1-external-https": "websecure"},
+		"both": {
+			"host-1-internal-http": "web-int", "host-1-internal-https": "websecure-int",
+			"host-1-external-http": "web", "host-1-external-https": "websecure",
+		},
+	} {
+		t.Run(exposure, func(t *testing.T) {
+			a := newApp(t, internalAndExternal(t.TempDir()))
+			form := hostForm("nas.example.com")
+			form.Set("exposure", exposure)
+
+			if rec := addHost(t, a, form); rec.Code != 200 {
+				t.Fatalf("POST /proxy-hosts = %d: %s", rec.Code, rec.Body)
+			}
+
+			routers := traefikConfig(t, a)["http"].(map[string]any)["routers"].(map[string]any)
+			if len(routers) != len(want) {
+				t.Fatalf("routers = %v, want %v", routers, want)
+			}
+			for name, ep := range want {
+				r, _ := routers[name].(map[string]any)
+				if !reflect.DeepEqual(r["entryPoints"], []any{ep}) || r["service"] != "host-1" {
+					t.Errorf("router %s = %v, want entryPoints [%s] and service host-1", name, routers[name], ep)
+				}
+			}
+			modal, _ := editForm(t, a, 1)
+			assertContains(t, modal, `value="`+exposure+`" checked`)
+		})
+	}
+}
+
+func TestSingleSideInstallHidesExposureAndUsesThatSide(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+
+	if modal := get(t, a, "/proxy-hosts/new"); strings.Contains(modal, "Who can reach it") || strings.Contains(modal, `name="exposure"`) {
+		t.Fatalf("single-side install offers an Exposure choice:\n%s", modal)
+	}
+	form := hostForm("nas.example.com")
+	form.Set("exposure", "external")
+	addHost(t, a, form)
+
+	if got := routerNames(t, a); !reflect.DeepEqual(got, []string{"host-1-internal-http", "host-1-internal-https"}) {
+		t.Fatalf("routers = %v", got)
+	}
+}
+
+func TestHostKeepsItsExposureWhenASideIsRemovedAndReAdded(t *testing.T) {
+	dir := t.TempDir()
+	restoreHosts(t, dir, `{"id": 1, "enabled": true, "domains": ["photos.example.com"], "forward": {"scheme": "http", "host": "10.0.0.1", "port": 80}, "exposure": "both", "certResolver": "le-dns", "middlewares": [], "updatedAt": "2026-01-01T00:00:00Z"}`)
+	a := newApp(t, internalOnly(dir))
+
+	if got := routerNames(t, a); !reflect.DeepEqual(got, []string{"host-1-internal-http", "host-1-internal-https"}) {
+		t.Fatalf("routers with External removed = %v", got)
+	}
+	_, updatedAt := editForm(t, a, 1)
+	form := hostForm("photos.example.com")
+	form.Set("updatedAt", updatedAt)
+	if rec := post(t, a, "/proxy-hosts/1", form); rec.Code != 200 {
+		t.Fatalf("POST /proxy-hosts/1 = %d: %s", rec.Code, rec.Body)
+	}
+
+	readded := newApp(t, internalAndExternal(dir))
+
+	want := []string{"host-1-external-http", "host-1-external-https", "host-1-internal-http", "host-1-internal-https"}
+	if got := routerNames(t, readded); !reflect.DeepEqual(got, want) {
+		t.Fatalf("routers with External re-added = %v, want %v", got, want)
+	}
+}
+
+func TestListShowsExposureBadgesInPlainWords(t *testing.T) {
+	a := newApp(t, internalAndExternal(t.TempDir()))
+	for domain, exposure := range map[string]string{"in.example.com": "internal", "out.example.com": "external", "all.example.com": "both"} {
+		form := hostForm(domain)
+		form.Set("exposure", exposure)
+		addHost(t, a, form)
+	}
+
+	list := get(t, a, "/")
+
+	assertContains(t, list, ">Exposure</th>", ">Internal</span>", ">External</span>", ">Both</span>")
+	for _, page := range []string{list, get(t, a, "/proxy-hosts/new"), get(t, a, "/proxy-hosts/1/edit")} {
+		if lower := strings.ToLower(page); strings.Contains(lower, "entrypoint") || strings.Contains(lower, "router") {
+			t.Errorf("user-facing page mentions Traefik internals:\n%s", page)
+		}
+	}
+}

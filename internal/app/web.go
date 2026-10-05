@@ -44,9 +44,23 @@ type formView struct {
 	ID                                        int
 	UpdatedAt                                 string
 	Domains, Scheme, Host, Port, CertResolver string
+	Exposure                                  string
 	Enabled                                   bool
+	Exposures                                 []exposureOption // none when the install has one side
 	Resolvers                                 []resolverOption
 	Errors                                    []string
+}
+
+type exposureOption struct {
+	Value, Label, Hint string
+	Checked            bool
+}
+
+// exposures are the Exposure choices, in the words the user sees.
+var exposures = []exposureOption{
+	{Value: "internal", Label: "Internal", Hint: "Reachable from your network only"},
+	{Value: "external", Label: "External", Hint: "Reachable from the internet only"},
+	{Value: "both", Label: "Both", Hint: "Reachable from your network and the internet"},
 }
 
 type resolverOption struct {
@@ -58,8 +72,10 @@ func (w *web) list(rw http.ResponseWriter, r *http.Request) {
 	render(rw, http.StatusOK, "list.html", listView{Hosts: w.store.all()})
 }
 
+// newForm opens a blank modal. Sides list Internal first, so a new host
+// defaults to Internal and nothing is exposed to the internet by accident.
 func (w *web) newForm(rw http.ResponseWriter, r *http.Request) {
-	w.modal(rw, http.StatusOK, formView{Scheme: "http", CertResolver: w.settings.certResolvers[0], Enabled: true})
+	w.modal(rw, http.StatusOK, formView{Scheme: "http", Exposure: w.settings.sides[0].name, CertResolver: w.settings.certResolvers[0], Enabled: true})
 }
 
 func (w *web) editForm(rw http.ResponseWriter, r *http.Request) {
@@ -75,15 +91,23 @@ func (w *web) editForm(rw http.ResponseWriter, r *http.Request) {
 		Scheme:       h.Forward.Scheme,
 		Host:         h.Forward.Host,
 		Port:         strconv.Itoa(h.Forward.Port),
+		Exposure:     h.Exposure,
 		CertResolver: h.CertResolver,
 		Enabled:      h.Enabled,
 	})
 }
 
-// modal renders the add/edit modal, filling in the Certificate Resolver
-// dropdown. A host's resolver that's no longer configured stays selected,
-// flagged, so Save is blocked rather than quietly switching resolvers.
+// modal renders the add/edit modal, filling in the Exposure cards (only
+// when there's a choice to make) and the Certificate Resolver dropdown. A
+// host's resolver that's no longer configured stays selected, flagged, so
+// Save is blocked rather than quietly switching resolvers.
 func (w *web) modal(rw http.ResponseWriter, status int, f formView) {
+	if len(w.settings.sides) > 1 {
+		for _, e := range exposures {
+			e.Checked = e.Value == f.Exposure
+			f.Exposures = append(f.Exposures, e)
+		}
+	}
 	for _, name := range w.settings.certResolvers {
 		f.Resolvers = append(f.Resolvers, resolverOption{Name: name, Selected: name == f.CertResolver})
 	}
@@ -95,6 +119,9 @@ func (w *web) modal(rw http.ResponseWriter, status int, f formView) {
 
 func (w *web) create(rw http.ResponseWriter, r *http.Request) {
 	f := readForm(r)
+	if len(w.settings.sides) == 1 {
+		f.Exposure = w.settings.sides[0].name // no choice to make
+	}
 	h, errs := w.parse(f)
 	if len(errs) > 0 {
 		f.Errors = errs
@@ -112,9 +139,13 @@ func (w *web) create(rw http.ResponseWriter, r *http.Request) {
 func (w *web) update(rw http.ResponseWriter, r *http.Request) {
 	f := readForm(r)
 	f.ID = pathID(r)
-	if _, ok := w.store.get(f.ID); !ok {
+	old, ok := w.store.get(f.ID)
+	if !ok {
 		http.NotFound(rw, r)
 		return
+	}
+	if len(w.settings.sides) == 1 {
+		f.Exposure = old.Exposure // no choice offered, so keep a removed side's Exposure
 	}
 	edited, errs := w.parse(f)
 	if len(errs) > 0 {
@@ -124,7 +155,7 @@ func (w *web) update(rw http.ResponseWriter, r *http.Request) {
 	}
 	seen, _ := time.Parse(time.RFC3339Nano, f.UpdatedAt)
 	err := w.store.update(f.ID, &seen, func(h *proxyHost) {
-		h.Domains, h.Forward, h.CertResolver, h.Enabled = edited.Domains, edited.Forward, edited.CertResolver, edited.Enabled
+		h.Domains, h.Forward, h.Exposure, h.CertResolver, h.Enabled = edited.Domains, edited.Forward, edited.Exposure, edited.CertResolver, edited.Enabled
 	})
 	switch {
 	case errors.Is(err, errNotFound):
@@ -182,6 +213,7 @@ func readForm(r *http.Request) formView {
 		Scheme:       r.FormValue("scheme"),
 		Host:         r.FormValue("host"),
 		Port:         r.FormValue("port"),
+		Exposure:     r.FormValue("exposure"),
 		CertResolver: r.FormValue("certResolver"),
 		Enabled:      r.FormValue("enabled") != "",
 	}
@@ -198,7 +230,7 @@ func (w *web) parse(f formView) (proxyHost, []string) {
 		Enabled:      f.Enabled,
 		Domains:      strings.Fields(strings.ToLower(strings.ReplaceAll(f.Domains, ",", " "))),
 		Forward:      forward{f.Scheme, f.Host, port},
-		Exposure:     w.settings.sides[0].name,
+		Exposure:     f.Exposure,
 		CertResolver: f.CertResolver,
 	}
 	errs := h.problems()
