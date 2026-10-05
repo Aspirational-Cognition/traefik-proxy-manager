@@ -11,13 +11,16 @@ type snapshot struct {
 }
 
 type httpConfig struct {
-	Routers  map[string]router  `json:"routers"`
-	Services map[string]service `json:"services"`
+	Routers           map[string]router           `json:"routers"`
+	Services          map[string]service          `json:"services"`
+	Middlewares       map[string]middleware       `json:"middlewares,omitempty"`
+	ServersTransports map[string]serversTransport `json:"serversTransports,omitempty"`
 }
 
 type router struct {
 	EntryPoints []string   `json:"entryPoints"`
 	Rule        string     `json:"rule"`
+	Middlewares []string   `json:"middlewares,omitempty"`
 	Service     string     `json:"service"`
 	TLS         *routerTLS `json:"tls,omitempty"`
 }
@@ -26,13 +29,34 @@ type routerTLS struct {
 	CertResolver string `json:"certResolver"`
 }
 
+type middleware struct {
+	RedirectScheme redirectScheme `json:"redirectScheme"`
+}
+
+type redirectScheme struct {
+	Scheme    string `json:"scheme"`
+	Permanent bool   `json:"permanent"`
+}
+
+// forceSSLMiddleware is the shared middleware every Force SSL host's http routers use.
+const forceSSLMiddleware = "tpm-force-ssl"
+
 type service struct {
 	LoadBalancer loadBalancer `json:"loadBalancer"`
 }
 
 type loadBalancer struct {
-	Servers []server `json:"servers"`
+	Servers          []server `json:"servers"`
+	ServersTransport string   `json:"serversTransport,omitempty"`
 }
+
+type serversTransport struct {
+	InsecureSkipVerify bool `json:"insecureSkipVerify"`
+}
+
+// skipCertCheckTransport is the shared transport for Forward Targets whose
+// certificate isn't checked.
+const skipCertCheckTransport = "tpm-skip-cert-check"
 
 type server struct {
 	URL string `json:"url"`
@@ -41,7 +65,12 @@ type server struct {
 // generate maps the Proxy Hosts to the Traefik dynamic-config snapshot. It
 // fails rather than leave out or mangle a host it can't render safely.
 func generate(hosts []proxyHost, s settings) (snapshot, error) {
-	snap := snapshot{httpConfig{map[string]router{}, map[string]service{}}}
+	snap := snapshot{httpConfig{
+		Routers:           map[string]router{},
+		Services:          map[string]service{},
+		Middlewares:       map[string]middleware{},
+		ServersTransports: map[string]serversTransport{},
+	}}
 	for _, h := range hosts {
 		if errs := h.problems(); len(errs) > 0 {
 			return snapshot{}, fmt.Errorf("Proxy Host %d: %s", h.ID, strings.Join(errs, " "))
@@ -55,14 +84,24 @@ func generate(hosts []proxyHost, s settings) (snapshot, error) {
 			rules[i] = "Host(`" + d + "`)"
 		}
 		rule := strings.Join(rules, " || ")
+		lb := loadBalancer{Servers: []server{{h.Forward.URL()}}}
+		if h.SkipCertCheck {
+			lb.ServersTransport = skipCertCheckTransport
+			snap.HTTP.ServersTransports[skipCertCheckTransport] = serversTransport{true}
+		}
+		var httpMiddlewares []string
+		if h.ForceSSL {
+			httpMiddlewares = []string{forceSSLMiddleware}
+			snap.HTTP.Middlewares[forceSSLMiddleware] = middleware{redirectScheme{"https", true}}
+		}
 		// Sides the install doesn't configure get no routers.
 		for _, sd := range s.sides {
 			if h.Exposure != sd.name && h.Exposure != "both" {
 				continue
 			}
-			snap.HTTP.Routers[name+"-"+sd.name+"-http"] = router{[]string{sd.http}, rule, name, nil}
-			snap.HTTP.Routers[name+"-"+sd.name+"-https"] = router{[]string{sd.https}, rule, name, &routerTLS{h.CertResolver}}
-			snap.HTTP.Services[name] = service{loadBalancer{[]server{{h.Forward.URL()}}}}
+			snap.HTTP.Routers[name+"-"+sd.name+"-http"] = router{EntryPoints: []string{sd.http}, Rule: rule, Middlewares: httpMiddlewares, Service: name}
+			snap.HTTP.Routers[name+"-"+sd.name+"-https"] = router{EntryPoints: []string{sd.https}, Rule: rule, Service: name, TLS: &routerTLS{h.CertResolver}}
+			snap.HTTP.Services[name] = service{lb}
 		}
 	}
 	return snap, nil

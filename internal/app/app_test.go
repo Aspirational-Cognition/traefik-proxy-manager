@@ -678,8 +678,8 @@ func TestBothSidesInstallOffersExposureCardsDefaultingToInternal(t *testing.T) {
 		`value="internal" checked`, "Internal", "Reachable from your network only",
 		`value="external"`, "External", "Reachable from the internet only",
 		`value="both"`, "Both", "Reachable from your network and the internet")
-	if strings.Count(modal, " checked") != 2 { // Internal and Enabled
-		t.Errorf("want only Internal and Enabled checked:\n%s", modal)
+	if strings.Contains(modal, `value="external" checked`) || strings.Contains(modal, `value="both" checked`) {
+		t.Errorf("want only Internal checked:\n%s", modal)
 	}
 }
 
@@ -769,6 +769,114 @@ func TestListShowsExposureBadgesInPlainWords(t *testing.T) {
 	for _, page := range []string{list, get(t, a, "/proxy-hosts/new"), get(t, a, "/proxy-hosts/1/edit")} {
 		if lower := strings.ToLower(page); strings.Contains(lower, "entrypoint") || strings.Contains(lower, "router") {
 			t.Errorf("user-facing page mentions Traefik internals:\n%s", page)
+		}
+	}
+}
+
+func TestModalOffersForceSSLAndSkipCertificateCheck(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+
+	modal := get(t, a, "/proxy-hosts/new")
+
+	assertContains(t, modal, "Force SSL", `name="forceSsl" checked`, "Skip certificate check", `name="skipCertCheck"`)
+	if strings.Contains(modal, `name="skipCertCheck" checked`) {
+		t.Errorf("new host skips the certificate check:\n%s", modal)
+	}
+
+	form := hostForm("nas.example.com")
+	form.Set("scheme", "https")
+	form.Set("skipCertCheck", "on")
+	addHost(t, a, form)
+	modal, _ = editForm(t, a, 1)
+
+	assertContains(t, modal, `name="skipCertCheck" checked`, `<option value="https" selected>`)
+	if strings.Contains(modal, `name="forceSsl" checked`) {
+		t.Errorf("host saved without Force SSL shows it on:\n%s", modal)
+	}
+}
+
+func TestForceSSLRedirectsPlainHTTPThroughOneSharedMiddleware(t *testing.T) {
+	a := newApp(t, internalAndExternal(t.TempDir()))
+	for _, d := range []string{"one.example.com", "two.example.com"} {
+		form := hostForm(d)
+		form.Set("exposure", "both")
+		form.Set("forceSsl", "on")
+		addHost(t, a, form)
+	}
+	legacy := hostForm("legacy.example.com") // Force SSL off
+	legacy.Set("exposure", "internal")
+	addHost(t, a, legacy)
+
+	snap := traefikConfig(t, a)["http"].(map[string]any)
+	routers := snap["routers"].(map[string]any)
+
+	for _, name := range []string{"host-1-internal-http", "host-1-external-http", "host-2-internal-http", "host-2-external-http"} {
+		if mw := routers[name].(map[string]any)["middlewares"]; !reflect.DeepEqual(mw, []any{"tpm-force-ssl"}) {
+			t.Errorf("router %s middlewares = %v, want [tpm-force-ssl]", name, mw)
+		}
+	}
+	for name, svc := range map[string]string{"host-1-internal-https": "host-1", "host-3-internal-http": "host-3"} {
+		r := routers[name].(map[string]any)
+		if r["middlewares"] != nil || r["service"] != svc {
+			t.Errorf("router %s = %v, want it forwarding to its service with no redirect", name, r)
+		}
+	}
+	want := map[string]any{"tpm-force-ssl": map[string]any{"redirectScheme": map[string]any{"scheme": "https", "permanent": true}}}
+	if !reflect.DeepEqual(snap["middlewares"], want) {
+		t.Errorf("middlewares = %v, want %v", snap["middlewares"], want)
+	}
+}
+
+func TestSkipCertificateCheckUsesOneSharedTransportForHTTPSTargets(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	for _, tc := range []struct{ domain, scheme string }{
+		{"nas.example.com", "https"},
+		{"proxmox.example.com", "https"},
+		{"plain.example.com", "http"}, // the toggle is hidden for http
+	} {
+		form := hostForm(tc.domain)
+		form.Set("scheme", tc.scheme)
+		form.Set("skipCertCheck", "on")
+		addHost(t, a, form)
+	}
+	checked := hostForm("checked.example.com")
+	checked.Set("scheme", "https")
+	addHost(t, a, checked)
+
+	snap := traefikConfig(t, a)["http"].(map[string]any)
+	services := snap["services"].(map[string]any)
+
+	for svc, want := range map[string]any{"host-1": "tpm-skip-cert-check", "host-2": "tpm-skip-cert-check", "host-3": nil, "host-4": nil} {
+		if got := services[svc].(map[string]any)["loadBalancer"].(map[string]any)["serversTransport"]; got != want {
+			t.Errorf("service %s serversTransport = %v, want %v", svc, got, want)
+		}
+	}
+	want := map[string]any{"tpm-skip-cert-check": map[string]any{"insecureSkipVerify": true}}
+	if !reflect.DeepEqual(snap["serversTransports"], want) {
+		t.Errorf("serversTransports = %v, want %v", snap["serversTransports"], want)
+	}
+	if modal, _ := editForm(t, a, 3); strings.Contains(modal, `name="skipCertCheck" checked`) {
+		t.Error("http host was saved skipping the certificate check")
+	}
+}
+
+func TestListShowsSSLSetupWithoutTpmsHelperNames(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	secure := hostForm("secure.example.com")
+	secure.Set("scheme", "https")
+	secure.Set("forceSsl", "on")
+	secure.Set("skipCertCheck", "on")
+	addHost(t, a, secure)
+	legacy := hostForm("legacy.example.com")
+	legacy.Set("certResolver", "le-dns")
+	addHost(t, a, legacy)
+
+	list := get(t, a, "/")
+
+	assertContains(t, list, ">SSL</th>", "Force SSL", "le-http", "HTTP allowed", "le-dns", "Certificate check skipped")
+	for _, page := range []string{list, get(t, a, "/proxy-hosts/1/edit")} {
+		if strings.Contains(page, "tpm-") {
+			t.Errorf("user-facing page shows a tpm helper name:\n%s", page)
 		}
 	}
 }

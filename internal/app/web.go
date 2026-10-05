@@ -45,7 +45,7 @@ type formView struct {
 	UpdatedAt                                 string
 	Domains, Scheme, Host, Port, CertResolver string
 	Exposure                                  string
-	Enabled                                   bool
+	ForceSSL, SkipCertCheck, Enabled          bool
 	Exposures                                 []exposureOption // none when the install has one side
 	Resolvers                                 []resolverOption
 	Errors                                    []string
@@ -75,7 +75,7 @@ func (w *web) list(rw http.ResponseWriter, r *http.Request) {
 // newForm opens a blank modal. Sides list Internal first, so a new host
 // defaults to Internal and nothing is exposed to the internet by accident.
 func (w *web) newForm(rw http.ResponseWriter, r *http.Request) {
-	w.modal(rw, http.StatusOK, formView{Scheme: "http", Exposure: w.settings.sides[0].name, CertResolver: w.settings.certResolvers[0], Enabled: true})
+	w.modal(rw, http.StatusOK, formView{Scheme: "http", Exposure: w.settings.sides[0].name, ForceSSL: true, CertResolver: w.settings.certResolvers[0], Enabled: true})
 }
 
 func (w *web) editForm(rw http.ResponseWriter, r *http.Request) {
@@ -85,15 +85,17 @@ func (w *web) editForm(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.modal(rw, http.StatusOK, formView{
-		ID:           h.ID,
-		UpdatedAt:    h.UpdatedAt.Format(time.RFC3339Nano),
-		Domains:      strings.Join(h.Domains, ", "),
-		Scheme:       h.Forward.Scheme,
-		Host:         h.Forward.Host,
-		Port:         strconv.Itoa(h.Forward.Port),
-		Exposure:     h.Exposure,
-		CertResolver: h.CertResolver,
-		Enabled:      h.Enabled,
+		ID:            h.ID,
+		UpdatedAt:     h.UpdatedAt.Format(time.RFC3339Nano),
+		Domains:       strings.Join(h.Domains, ", "),
+		Scheme:        h.Forward.Scheme,
+		Host:          h.Forward.Host,
+		Port:          strconv.Itoa(h.Forward.Port),
+		Exposure:      h.Exposure,
+		ForceSSL:      h.ForceSSL,
+		SkipCertCheck: h.SkipCertCheck,
+		CertResolver:  h.CertResolver,
+		Enabled:       h.Enabled,
 	})
 }
 
@@ -155,7 +157,9 @@ func (w *web) update(rw http.ResponseWriter, r *http.Request) {
 	}
 	seen, _ := time.Parse(time.RFC3339Nano, f.UpdatedAt)
 	err := w.store.update(f.ID, &seen, func(h *proxyHost) {
-		h.Domains, h.Forward, h.Exposure, h.CertResolver, h.Enabled = edited.Domains, edited.Forward, edited.Exposure, edited.CertResolver, edited.Enabled
+		// The form carries every other field; the store stamps updatedAt.
+		edited.ID, edited.Middlewares, edited.CreatedAt = h.ID, h.Middlewares, h.CreatedAt
+		*h = edited
 	})
 	switch {
 	case errors.Is(err, errNotFound):
@@ -208,14 +212,16 @@ func pathID(r *http.Request) int {
 // readForm reads the add/edit modal's fields as typed.
 func readForm(r *http.Request) formView {
 	return formView{
-		UpdatedAt:    r.FormValue("updatedAt"),
-		Domains:      r.FormValue("domains"),
-		Scheme:       r.FormValue("scheme"),
-		Host:         r.FormValue("host"),
-		Port:         r.FormValue("port"),
-		Exposure:     r.FormValue("exposure"),
-		CertResolver: r.FormValue("certResolver"),
-		Enabled:      r.FormValue("enabled") != "",
+		UpdatedAt:     r.FormValue("updatedAt"),
+		Domains:       r.FormValue("domains"),
+		Scheme:        r.FormValue("scheme"),
+		Host:          r.FormValue("host"),
+		Port:          r.FormValue("port"),
+		Exposure:      r.FormValue("exposure"),
+		ForceSSL:      r.FormValue("forceSsl") != "",
+		SkipCertCheck: r.FormValue("skipCertCheck") != "",
+		CertResolver:  r.FormValue("certResolver"),
+		Enabled:       r.FormValue("enabled") != "",
 	}
 }
 
@@ -227,11 +233,13 @@ func (w *web) parse(f formView) (proxyHost, []string) {
 		port = 0 // reported as out of range
 	}
 	h := proxyHost{
-		Enabled:      f.Enabled,
-		Domains:      strings.Fields(strings.ToLower(strings.ReplaceAll(f.Domains, ",", " "))),
-		Forward:      forward{f.Scheme, f.Host, port},
-		Exposure:     f.Exposure,
-		CertResolver: f.CertResolver,
+		Enabled:       f.Enabled,
+		Domains:       strings.Fields(strings.ToLower(strings.ReplaceAll(f.Domains, ",", " "))),
+		Forward:       forward{f.Scheme, f.Host, port},
+		Exposure:      f.Exposure,
+		ForceSSL:      f.ForceSSL,
+		SkipCertCheck: f.SkipCertCheck && f.Scheme == "https", // the toggle only shows for https
+		CertResolver:  f.CertResolver,
 	}
 	errs := h.problems()
 	if !slices.Contains(w.settings.certResolvers, f.CertResolver) {

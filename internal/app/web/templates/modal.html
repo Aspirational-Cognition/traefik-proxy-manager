@@ -1,7 +1,7 @@
 {{define "modal"}}
 {{$input := "bg-canvas border border-line-strong rounded px-3 py-2 text-fg-strong placeholder-fg-faint focus:outline-none focus:border-accent-hover"}}
 <div class="fixed inset-0 bg-scrim/70 flex items-start justify-center pt-8 pb-24 overflow-auto z-40">
-  <form hx-post="/proxy-hosts{{with .ID}}/{{.}}{{end}}" hx-target="#modal" class="bg-surface border border-line text-fg rounded-lg shadow-2xl w-full max-w-2xl">
+  <form hx-post="/proxy-hosts{{with .ID}}/{{.}}{{end}}" hx-target="#modal" class="group bg-surface border border-line text-fg rounded-lg shadow-2xl w-full max-w-2xl">
     <div class="px-5 py-3 border-b border-line font-semibold">{{if .ID}}Edit{{else}}New{{end}} Proxy Host</div>
     {{with .UpdatedAt}}<input type="hidden" name="updatedAt" value="{{.}}">{{end}}
     <div class="p-5">
@@ -25,6 +25,8 @@
           <span class="self-center text-fg-muted">:</span>
           <input name="port" value="{{.Port}}" placeholder="8080" inputmode="numeric" class="w-24 {{$input}}">
         </div>
+        {{/* Shown only while the scheme is https; CSS, so no JS. */}}
+        <label class="hidden group-has-[[name=scheme]_[value=https]:checked]:flex items-center gap-2 mt-2 text-sm text-fg-soft"><input type="checkbox" name="skipCertCheck"{{if .SkipCertCheck}} checked{{end}} class="accent-accent"> Skip certificate check (self-signed)</label>
       </section>
 
       {{with .Exposures}}
@@ -45,6 +47,7 @@
       <section class="mt-5">
         <h3 class="text-xs uppercase tracking-wide text-fg-muted mb-2">HTTPS</h3>
         <div class="flex items-center gap-6 border border-line rounded px-4 py-3">
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="forceSsl"{{if .ForceSSL}} checked{{end}} class="accent-accent"> Force SSL</label>
           <label class="flex items-center gap-2 text-sm text-fg-soft">Certificate Resolver
             <select name="certResolver" class="{{$input}} py-1">
               {{range .Resolvers}}<option value="{{.Name}}"{{if .Selected}} selected{{end}}>{{.Name}}{{if .Unlisted}} (not configured){{end}}</option>{{end}}
