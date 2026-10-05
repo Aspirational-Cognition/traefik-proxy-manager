@@ -1,0 +1,24 @@
+@import "tailwindcss";
+@source "./templates";
+
+/* Dark theme only. Every colour is a named token here; templates use the
+   tokens (bg-surface, text-fg-muted, …) and never raw colours. Tailwind's
+   own palette is cleared so a stray bg-slate-900 doesn't build. */
+@theme {
+  --color-*: initial;
+  --color-canvas: #020617;
+  --color-surface: #0f172a;
+  --color-raised: #1e293b;
+  --color-line: #1e293b;
+  --color-line-strong: #334155;
+  --color-fg: #e2e8f0;
+  --color-fg-strong: #f1f5f9;
+  --color-fg-soft: #cbd5e1;
+  --color-fg-muted: #64748b;
+  --color-fg-faint: #475569;
+  --color-accent: #059669;
+  --color-accent-hover: #10b981;
+  --color-on-accent: #ffffff;
+  --color-danger: #f87171;
+  --color-scrim: #000000;
+}

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true}]}'>
+<title>Proxy Hosts · tpm</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/htmx.min.js"></script>
+</head>
+<body class="min-h-screen bg-canvas text-fg">
+<div class="max-w-6xl mx-auto p-6 pb-24">
+  {{template "hosts" .}}
+</div>
+<div id="modal"></div>
+</body>
+</html>
+
+{{define "hosts"}}
+<div id="proxy-hosts"{{if .OOB}} hx-swap-oob="true"{{end}}>
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-2xl font-semibold">Proxy Hosts <span class="text-fg-muted text-base">{{len .Hosts}}</span></h1>
+    <button hx-get="/proxy-hosts/new" hx-target="#modal" class="bg-accent hover:bg-accent-hover text-on-accent px-4 py-2 rounded">Add Proxy Host</button>
+  </div>
+  <div class="bg-surface rounded border border-line overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-left text-xs uppercase text-fg-muted"><tr><th class="p-3">Source</th><th class="p-3">Destination</th></tr></thead>
+      <tbody>
+      {{range .Hosts}}
+        <tr class="border-t border-line hover:bg-raised/50">
+          <td class="p-3">{{range .Domains}}<span class="inline-block bg-raised text-fg rounded px-2 py-0.5 text-xs mr-1 mb-1">{{.}}</span>{{end}}</td>
+          <td class="p-3 font-mono text-xs text-fg-soft">{{.Forward.URL}}</td>
+        </tr>
+      {{else}}
+        <tr><td colspan="2" class="p-8 text-center text-fg-muted">There are no Proxy Hosts yet. Add one to forward a domain to a device or app on your network.</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{end}}

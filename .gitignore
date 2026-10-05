@@ -1,1 +1,4 @@
 .claude/
+bin/
+# Built by `make css` (Tailwind standalone CLI), then embedded.
+internal/app/web/static/app.css

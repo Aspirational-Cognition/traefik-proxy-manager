@@ -1,0 +1,46 @@
+{{define "modal"}}
+{{$input := "bg-canvas border border-line-strong rounded px-3 py-2 text-fg-strong placeholder-fg-faint focus:outline-none focus:border-accent-hover"}}
+<div class="fixed inset-0 bg-scrim/70 flex items-start justify-center pt-8 pb-24 overflow-auto z-40">
+  <form hx-post="/proxy-hosts" hx-target="#modal" class="bg-surface border border-line text-fg rounded-lg shadow-2xl w-full max-w-2xl">
+    <div class="px-5 py-3 border-b border-line font-semibold">New Proxy Host</div>
+    <div class="p-5">
+      {{with .Errors}}
+      <div class="rounded bg-danger/10 border border-danger/40 text-danger px-4 py-2 text-sm">
+        {{range .}}<div>{{.}}</div>{{end}}
+      </div>
+      {{end}}
+
+      <section class="mt-5">
+        <h3 class="text-xs uppercase tracking-wide text-fg-muted mb-2">Domain Names</h3>
+        <input name="domains" value="{{.Domains}}" placeholder="app.example.com, app.home.example.com" class="w-full {{$input}}">
+      </section>
+
+      <section class="mt-5">
+        <h3 class="text-xs uppercase tracking-wide text-fg-muted mb-2">Send traffic to</h3>
+        <div class="flex gap-2">
+          <select name="scheme" class="{{$input}} px-2"><option value="http" selected>http</option></select>
+          <span class="self-center text-fg-muted">://</span>
+          <input name="host" value="{{.Host}}" placeholder="192.168.1.10" class="flex-1 {{$input}}">
+          <span class="self-center text-fg-muted">:</span>
+          <input name="port" value="{{.Port}}" placeholder="8080" inputmode="numeric" class="w-24 {{$input}}">
+        </div>
+      </section>
+
+      <section class="mt-5">
+        <h3 class="text-xs uppercase tracking-wide text-fg-muted mb-2">HTTPS</h3>
+        <div class="flex items-center gap-6 border border-line rounded px-4 py-3">
+          <label class="flex items-center gap-2 text-sm text-fg-soft">Certificate Resolver
+            <select name="certResolver" class="{{$input}} py-1">
+              {{range .Resolvers}}<option value="{{.Name}}"{{if .Selected}} selected{{end}}>{{.Name}}</option>{{end}}
+            </select>
+          </label>
+        </div>
+      </section>
+    </div>
+    <div class="px-5 py-3 border-t border-line flex justify-end gap-2">
+      <button type="button" onclick="this.closest('#modal').replaceChildren()" class="px-4 py-2 rounded border border-line-strong hover:bg-raised">Cancel</button>
+      <button class="px-4 py-2 rounded bg-accent hover:bg-accent-hover text-on-accent">Save</button>
+    </div>
+  </form>
+</div>
+{{end}}
