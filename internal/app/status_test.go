@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -40,15 +41,21 @@ func forwardAuth(name string) fakeMiddleware {
 	return fakeMiddleware{"name": name, "type": "forwardauth", "status": "enabled", "forwardAuth": map[string]any{"address": "http://auth:9000"}}
 }
 
+// fakeCert is one certificate as Traefik's API reports it.
+type fakeCert struct {
+	SANs []string `json:"sans"`
+}
+
 // fakeTraefik is Traefik's API as each test sets it up.
 type fakeTraefik struct {
-	mu          sync.Mutex
-	routers     []fakeRouter
-	middlewares []fakeMiddleware
-	pageSize    int    // 0: everything on one page
-	password    string // if set, basic auth as admin is required
-	requests    int
-	srv         *httptest.Server
+	mu           sync.Mutex
+	routers      []fakeRouter
+	middlewares  []fakeMiddleware
+	certificates []fakeCert // nil: Traefik older than 3.7, with no /api/certificates
+	pageSize     int        // 0: everything on one page
+	password     string     // if set, basic auth as admin is required
+	requests     int
+	srv          *httptest.Server
 }
 
 func newFakeTraefik(t *testing.T) *fakeTraefik {
@@ -66,6 +73,12 @@ func (f *fakeTraefik) setMiddlewares(ms ...fakeMiddleware) {
 	f.mu.Unlock()
 }
 
+func (f *fakeTraefik) setCertificates(cs ...fakeCert) {
+	f.mu.Lock()
+	f.certificates = append([]fakeCert{}, cs...)
+	f.mu.Unlock()
+}
+
 func (f *fakeTraefik) requestCount() int { f.mu.Lock(); defer f.mu.Unlock(); return f.requests }
 
 func (f *fakeTraefik) serve(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +89,12 @@ func (f *fakeTraefik) serve(w http.ResponseWriter, r *http.Request) {
 		serveList(f, w, r, f.routers)
 	case "/api/http/middlewares":
 		serveList(f, w, r, f.middlewares)
+	case "/api/certificates":
+		if f.certificates == nil {
+			http.NotFound(w, r)
+			return
+		}
+		serveList(f, w, r, f.certificates)
 	default:
 		http.NotFound(w, r)
 	}
@@ -215,7 +234,7 @@ func TestRouterTraefikDisabledShowsErrorInPlainWords(t *testing.T) {
 	}
 }
 
-func TestRouterWithOnlyAWarningIsStillOnline(t *testing.T) {
+func TestRouterTraefikWarnsAboutShowsWarning(t *testing.T) {
 	a, traefik, clk := statusApp(t)
 	addHost(t, a, hostForm("nas.example.com"))
 	traefik.set(
@@ -225,7 +244,113 @@ func TestRouterWithOnlyAWarningIsStillOnline(t *testing.T) {
 
 	servedLongAgo(t, a, clk)
 
+	assertContains(t, statusOf(t, a, 1), "bg-warn", "Warning", `<div class="text-warn">Traefik said: TLS options conflict</div>`)
+}
+
+// restoredStatusApp is statusApp on an internal-only install whose data
+// file holds one restored host, given as its JSON fields after the
+// Forward Target.
+func restoredStatusApp(t *testing.T, fields string) (*app.App, *fakeTraefik, *clock) {
+	t.Helper()
+	dir := t.TempDir()
+	restoreHosts(t, dir, `{"id": 1, "enabled": true, "domains": ["photos.example.com"], "forward": {"scheme": "http", "host": "10.0.0.1", "port": 80}, `+fields+`, "middlewares": [], "updatedAt": "2026-01-01T00:00:00Z"}`)
+	return statusAppAt(t, newFakeTraefik(t), "", dir)
+}
+
+func TestHostExposedOnASideTheInstallNoLongerConfiguresShowsWarning(t *testing.T) {
+	a, traefik, clk := restoredStatusApp(t, `"exposure": "both", "certResolver": "le-dns"`)
+	traefik.set(loaded("host-1-internal-http@http", "host-1-internal-https@http")...)
+
+	servedLongAgo(t, a, clk)
+
+	assertContains(t, statusOf(t, a, 1), "Warning", "External isn&#39;t configured")
+}
+
+func TestHostWithNoConfiguredSideLeftShowsErrorAndGetsNoRouters(t *testing.T) {
+	a, _, clk := restoredStatusApp(t, `"exposure": "external", "certResolver": "le-dns"`)
+
+	servedLongAgo(t, a, clk)
+	status := statusOf(t, a, 1)
+
+	assertContains(t, status, "Error", "External isn&#39;t configured")
+	if strings.Contains(status, "Traefik didn") {
+		t.Errorf("Status blames Traefik for a host tpm gave it no routers for:\n%s", status)
+	}
+	if got := routerNames(t, a); len(got) != 0 {
+		t.Errorf("routers = %v, want none", got)
+	}
+}
+
+func TestUnconfiguredResolverShowsWarningAndTpmKeepsServingIt(t *testing.T) {
+	a, traefik, clk := restoredStatusApp(t, `"exposure": "internal", "certResolver": "old-le"`)
+	traefik.set(loaded("host-1-internal-http@http", "host-1-internal-https@http")...)
+
+	servedLongAgo(t, a, clk)
+
+	assertContains(t, statusOf(t, a, 1), "Warning", "Certificate Resolver &#39;old-le&#39; isn&#39;t configured")
+	https := traefikConfig(t, a)["http"].(map[string]any)["routers"].(map[string]any)["host-1-internal-https"]
+	if !strings.Contains(fmt.Sprint(https), "certResolver:old-le") {
+		t.Errorf("https router = %v, want certResolver old-le", https)
+	}
+}
+
+func TestDomainWithoutACertificateShowsWarning(t *testing.T) {
+	a, traefik, clk := statusApp(t)
+	addHost(t, a, hostForm("nas.example.com, files.home.example.com, deep.a.example.com"))
+	traefik.set(loaded("host-1-internal-http@http", "host-1-internal-https@http")...)
+	traefik.setCertificates(
+		fakeCert{SANs: []string{"NAS.example.com"}},
+		fakeCert{SANs: []string{"*.home.example.com", "*.example.com"}}, // a wildcard covers one label
+	)
+
+	servedLongAgo(t, a, clk)
+	status := statusOf(t, a, 1)
+
+	assertContains(t, status, "Warning", "No certificate yet for deep.a.example.com")
+	for _, covered := range []string{"for nas.example.com", "for files.home.example.com"} {
+		if strings.Contains(status, covered) {
+			t.Errorf("Status flags a covered domain (%s):\n%s", covered, status)
+		}
+	}
+}
+
+func TestHostWhoseDomainsAllHaveCertificatesIsOnline(t *testing.T) {
+	a, traefik, clk := statusApp(t)
+	addHost(t, a, hostForm("nas.example.com"))
+	traefik.set(loaded("host-1-internal-http@http", "host-1-internal-https@http")...)
+	traefik.setCertificates(fakeCert{SANs: []string{"*.example.com"}})
+
+	servedLongAgo(t, a, clk)
+
 	assertContains(t, statusOf(t, a, 1), "Online")
+}
+
+func TestTraefikWithoutTheCertificatesAPISkipsTheCheck(t *testing.T) {
+	a, traefik, clk := statusApp(t) // the fake answers /api/certificates with 404
+	addHost(t, a, hostForm("nas.example.com"))
+	traefik.set(loaded("host-1-internal-http@http", "host-1-internal-https@http")...)
+
+	servedLongAgo(t, a, clk)
+
+	assertContains(t, statusOf(t, a, 1), "Online")
+}
+
+func TestErrorOutranksWarningAndListsEveryMessageOnce(t *testing.T) {
+	a, traefik, clk := restoredStatusApp(t, `"exposure": "internal", "certResolver": "old-le"`)
+	traefik.set(
+		fakeRouter{Name: "host-1-internal-http@http", Status: "warning", Error: []string{"TLS options conflict"}},
+		fakeRouter{Name: "host-1-internal-https@http", Status: "disabled", Error: []string{"TLS options conflict"}},
+	)
+	traefik.setCertificates()
+
+	servedLongAgo(t, a, clk)
+	status := statusOf(t, a, 1)
+
+	assertContains(t, status, "Error", "TLS options conflict",
+		"Certificate Resolver &#39;old-le&#39; isn&#39;t configured", "No certificate yet for photos.example.com")
+	if strings.Contains(status, "Warning") || strings.Count(status, "TLS options conflict") != 1 {
+		t.Errorf("want Error with each message once:\n%s", status)
+	}
 }
 
 func TestDisabledRouterWithoutAReasonIsStillAnError(t *testing.T) {

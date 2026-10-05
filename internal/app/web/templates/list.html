@@ -59,8 +59,9 @@
 {{- end}}
 
 {{define "status"}}
-<span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full {{if eq .Value "Online"}}bg-online{{else if eq .Value "Pending"}}bg-pending{{else if eq .Value "Error"}}bg-danger{{else if eq .Value "Unknown"}}bg-fg-faint{{else}}bg-fg-muted{{end}}"></span>{{.Value}}</span>
-{{- range .Messages}}<div class="text-danger">{{.}}</div>{{end}}
+<span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full {{if eq .Value "Online"}}bg-online{{else if eq .Value "Pending"}}bg-pending{{else if eq .Value "Warning"}}bg-warn{{else if eq .Value "Error"}}bg-danger{{else if eq .Value "Unknown"}}bg-fg-faint{{else}}bg-fg-muted{{end}}"></span>{{.Value}}</span>
+{{- $tone := "text-danger"}}{{if eq .Value "Warning"}}{{$tone = "text-warn"}}{{end}}
+{{- range .Messages}}<div class="{{$tone}}">{{.}}</div>{{end}}
 {{- end}}
 
 {{define "statuses"}}

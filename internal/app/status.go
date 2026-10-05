@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -15,7 +16,7 @@ const pendingFor = 10 * time.Second
 // hostStatus is whether a Proxy Host is live in Traefik, with the reasons
 // shown next to it.
 type hostStatus struct {
-	Value    string // Online, Pending, Error, Unknown or Disabled
+	Value    string // Online, Warning, Error, Pending, Unknown or Disabled
 	Messages []string
 }
 
@@ -36,7 +37,7 @@ func (w *web) rows() []hostRow {
 }
 
 // status is h's Status given what Traefik reports (or the error reaching
-// it), in priority order: Disabled, Unknown, Pending, Error, Online.
+// it), in priority order: Disabled, Unknown, Pending, Error, Warning, Online.
 func (w *web) status(h proxyHost, live liveTraefik, liveErr error) hostStatus {
 	switch {
 	case !h.Enabled:
@@ -47,29 +48,61 @@ func (w *web) status(h proxyHost, live liveTraefik, liveErr error) hostStatus {
 	if at, ok := w.polls.servedAt(h.UpdatedAt); !ok || w.now().Before(at.Add(pendingFor)) {
 		return hostStatus{Value: "Pending"}
 	}
-	// The worst across the host's routers, with every reason given once.
+	// The worst of Error and Warning, with every reason given once.
 	st := hostStatus{Value: "Online"}
-	fail := func(msg string) {
-		st.Value = "Error"
-		if !slices.Contains(st.Messages, msg) {
+	flag := func(value, msg string) {
+		if st.Value != "Error" {
+			st.Value = value
+		}
+		if msg != "" && !slices.Contains(st.Messages, msg) {
 			st.Messages = append(st.Messages, msg)
 		}
 	}
-	for _, sd := range w.settings.sidesOf(h) {
+	sides := w.settings.sidesOf(h)
+	unconfigured := "Warning"
+	if len(sides) == 0 {
+		unconfigured = "Error" // no routers at all
+	}
+	for _, e := range exposures {
+		if e.Value != "both" && (h.Exposure == e.Value || h.Exposure == "both") && !slices.ContainsFunc(sides, func(sd side) bool { return sd.name == e.Value }) {
+			flag(unconfigured, e.Label+" isn't configured")
+		}
+	}
+	if !slices.Contains(w.settings.certResolvers, h.CertResolver) {
+		flag("Warning", fmt.Sprintf("Certificate Resolver '%s' isn't configured", h.CertResolver))
+	}
+	for _, sd := range sides {
 		for _, ep := range []string{"http", "https"} {
 			r, ok := live.routers[routerName(h, sd, ep)+"@http"]
 			switch {
 			case !ok:
-				fail("Traefik didn't load this host. Check Traefik's logs.")
-			case r.Status == "disabled":
-				st.Value = "Error" // even when Traefik gives no reason
+				flag("Error", "Traefik didn't load this host. Check Traefik's logs.")
+			case r.Status == "disabled" || r.Status == "warning":
+				value := "Error"
+				if r.Status == "warning" {
+					value = "Warning"
+				}
+				flag(value, "") // even when Traefik gives no reason
 				for _, e := range r.Error {
-					fail(reword(e))
+					flag(value, reword(e))
 				}
 			}
 		}
 	}
+	for _, d := range h.Domains {
+		if len(sides) > 0 && live.missingCert(d) {
+			flag("Warning", "No certificate yet for "+d)
+		}
+	}
 	return st
+}
+
+// missingCert is whether Traefik has no certificate for domain d, exactly
+// or by a wildcard one label up. Never when Traefik can't list them.
+func (l liveTraefik) missingCert(d string) bool {
+	d = strings.ToLower(d)
+	_, parent, _ := strings.Cut(d, ".")
+	return l.sans != nil && !l.sans[d] && !l.sans["*."+parent]
 }
 
 var (
