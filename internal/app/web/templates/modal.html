@@ -5,6 +5,8 @@
     <div class="px-5 py-3 border-b border-line font-semibold">{{if .ID}}Edit{{else}}New{{end}} Proxy Host</div>
     {{with .UpdatedAt}}<input type="hidden" name="updatedAt" value="{{.}}">{{end}}
     <div class="p-5">
+      {{/* Re-checked as Domain Names, Exposure or Enabled change. */}}
+      <div id="clashes" hx-target="this" hx-get="/proxy-hosts/clashes{{with .ID}}?id={{.}}{{end}}" hx-include="closest form" hx-trigger="input changed delay:400ms from:[name=domains], change from:[name=exposure], change from:[name=enabled]">{{template "clash-banner" .Clashes}}</div>
       {{with .Problems}}
       <div class="rounded bg-warn/10 border border-warn/40 text-warn px-4 py-2 text-sm mb-2">
         <b>Traefik reported a problem:</b>
@@ -48,6 +50,8 @@
           {{end}}
         </div>
       </section>
+      {{else}}
+      <input type="hidden" name="exposure" value="{{.Exposure}}">
       {{end}}
 
       <section class="mt-5">
@@ -88,3 +92,10 @@
   </form>
 </div>
 {{end}}
+
+{{define "clash-banner"}}
+{{- with .}}<div class="rounded bg-warn/10 border border-warn/40 text-warn px-4 py-2 text-sm mb-2">
+  {{- range .}}<div><b>{{.Domain}}</b> is also used by {{if .HostID}}Proxy Host <button type="button" hx-get="/proxy-hosts/{{.HostID}}/edit" hx-target="#modal" class="underline"><b>{{.By}}</b></button>{{else}}<b>{{.By}}</b> ({{.Provider}}){{end}}, on {{.Sides}}</div>{{end}}
+  <div>You can still save.</div>
+</div>{{end}}
+{{- end}}

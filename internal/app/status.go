@@ -81,12 +81,13 @@ func (l liveTraefik) loadedAnyHost() bool {
 	return false
 }
 
-// rows pairs every stored Proxy Host with its Status.
+// rows pairs every stored Proxy Host with its Status and Domain Clashes.
 func (w *web) rows() []hostRow {
 	live, err := w.traefik.state()
+	hosts := w.store.all()
 	var rows []hostRow
-	for _, h := range w.store.all() {
-		rows = append(rows, hostRow{h, w.status(h, live, err)})
+	for _, h := range hosts {
+		rows = append(rows, hostRow{h, w.status(h, live, err), w.clashes(h, hosts, live.labelRoutes)})
 	}
 	return rows
 }

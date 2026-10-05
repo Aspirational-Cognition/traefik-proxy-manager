@@ -27,9 +27,11 @@ func (c *clock) advance(d time.Duration) { c.mu.Lock(); c.now = c.now.Add(d); c.
 
 // fakeRouter is one router as Traefik's API reports it.
 type fakeRouter struct {
-	Name   string   `json:"name"`
-	Status string   `json:"status"`
-	Error  []string `json:"error,omitempty"`
+	Name        string   `json:"name"`
+	Status      string   `json:"status"`
+	Error       []string `json:"error,omitempty"`
+	Rule        string   `json:"rule,omitempty"`
+	EntryPoints []string `json:"entryPoints,omitempty"`
 }
 
 // fakeMiddleware is one Middleware as Traefik's API reports it, config included.

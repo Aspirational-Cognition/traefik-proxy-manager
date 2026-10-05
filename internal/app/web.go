@@ -44,10 +44,12 @@ type listView struct {
 	OOB     bool
 }
 
-// hostRow is one row of the list: the stored host and its live Status.
+// hostRow is one row of the list: the stored host, its live Status and its
+// Domain Clashes.
 type hostRow struct {
 	proxyHost
-	Status hostStatus
+	Status  hostStatus
+	Clashes []domainClash
 }
 
 // formView is the add/edit modal: the values as typed, plus what blocks Save.
@@ -65,6 +67,7 @@ type formView struct {
 	Defaults                                  string   // each Exposure's default Access rules, as JSON
 	AccessUnknown                             bool     // Traefik can't be reached to list Access rules
 	Problems                                  []string // Traefik's, for a host in Error
+	Clashes                                   []domainClash
 	Errors                                    []string
 }
 
@@ -147,6 +150,7 @@ func (w *web) modal(rw http.ResponseWriter, status int, f formView) {
 		f.Resolvers = append(f.Resolvers, resolverOption{f.CertResolver, true, true})
 	}
 	w.accessPicker(&f)
+	f.Clashes = w.formClashes(f)
 	render(rw, status, "modal", f)
 }
 
@@ -304,7 +308,7 @@ func (w *web) parse(f formView) (proxyHost, []string) {
 	}
 	h := proxyHost{
 		Enabled:       f.Enabled,
-		Domains:       strings.Fields(strings.ToLower(strings.ReplaceAll(f.Domains, ",", " "))),
+		Domains:       splitDomains(f.Domains),
 		Forward:       forward{f.Scheme, f.Host, port},
 		Exposure:      f.Exposure,
 		ForceSSL:      f.ForceSSL,
@@ -317,6 +321,11 @@ func (w *web) parse(f formView) (proxyHost, []string) {
 		errs = append(errs, "Pick a Certificate Resolver from the list.")
 	}
 	return h, errs
+}
+
+// splitDomains reads the Domain Names field: comma- or space-separated, lowercased.
+func splitDomains(field string) []string {
+	return strings.Fields(strings.ToLower(strings.ReplaceAll(field, ",", " ")))
 }
 
 // AccessRules are h's Access rules as users see them, in the order they apply.

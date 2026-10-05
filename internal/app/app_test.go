@@ -730,7 +730,7 @@ func TestExposureDecidesWhichSidesServeTheHost(t *testing.T) {
 func TestSingleSideInstallHidesExposureAndUsesThatSide(t *testing.T) {
 	a := newApp(t, internalOnly(t.TempDir()))
 
-	if modal := get(t, a, "/proxy-hosts/new"); strings.Contains(modal, "Who can reach it") || strings.Contains(modal, `name="exposure"`) {
+	if modal := get(t, a, "/proxy-hosts/new"); strings.Contains(modal, "Who can reach it") || strings.Contains(modal, `type="radio" name="exposure"`) {
 		t.Fatalf("single-side install offers an Exposure choice:\n%s", modal)
 	}
 	form := hostForm("nas.example.com")

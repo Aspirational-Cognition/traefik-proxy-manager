@@ -36,7 +36,7 @@
           <td class="p-3">{{template "exposure-badge" .Exposure}}</td>
           <td class="p-3 text-xs text-fg-soft">{{if .ForceSSL}}🔒 Force SSL{{else}}HTTP allowed{{end}}<div class="text-fg-muted">{{.CertResolver}}</div></td>
           <td class="p-3">{{range .AccessRules}}<span class="inline-block bg-raised text-fg-soft rounded px-2 py-0.5 text-xs mr-1 mb-1">{{.}}</span>{{end}}</td>
-          <td class="p-3 text-xs text-fg-soft"><div id="status-{{.ID}}">{{template "status" .Status}}</div></td>
+          <td class="p-3 text-xs text-fg-soft"><div id="status-{{.ID}}">{{template "status" .}}</div></td>
           <td class="p-3 text-right whitespace-nowrap text-xs space-x-2">
             <button hx-get="/proxy-hosts/{{.ID}}/edit" hx-target="#modal" class="text-link hover:underline">Edit</button>
             <button hx-post="/proxy-hosts/{{.ID}}/{{if .Enabled}}disable{{else}}enable{{end}}" hx-target="#proxy-hosts" hx-swap="outerHTML" class="text-fg-muted hover:underline">{{if .Enabled}}Disable{{else}}Enable{{end}}</button>
@@ -59,14 +59,16 @@
 {{- end}}
 {{- end}}
 
+{{/* A row's Status, with a Domain Clash flagged beside it. */}}
 {{define "status"}}
-<span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full {{if eq .Value "Online"}}bg-online{{else if eq .Value "Pending"}}bg-pending{{else if eq .Value "Warning"}}bg-warn{{else if eq .Value "Error"}}bg-danger{{else if eq .Value "Unknown"}}bg-fg-faint{{else}}bg-fg-muted{{end}}"></span>{{.Value}}</span>
-{{- $tone := "text-danger"}}{{if eq .Value "Warning"}}{{$tone = "text-warn"}}{{end}}
-{{- range .Messages}}<div class="{{$tone}}">{{.}}</div>{{end}}
+{{- with .Status}}<span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full {{if eq .Value "Online"}}bg-online{{else if eq .Value "Pending"}}bg-pending{{else if eq .Value "Warning"}}bg-warn{{else if eq .Value "Error"}}bg-danger{{else if eq .Value "Unknown"}}bg-fg-faint{{else}}bg-fg-muted{{end}}"></span>{{.Value}}</span>{{end}}
+{{- if .Clashes}} <span class="text-warn">⚠ clash</span>{{end}}
+{{- with .Status}}{{$tone := "text-danger"}}{{if eq .Value "Warning"}}{{$tone = "text-warn"}}{{end}}
+{{- range .Messages}}<div class="{{$tone}}">{{.}}</div>{{end}}{{end}}
 {{- end}}
 
 {{define "statuses"}}
-{{- range .Hosts}}<div id="status-{{.ID}}" hx-swap-oob="true">{{template "status" .Status}}</div>
+{{- range .Hosts}}<div id="status-{{.ID}}" hx-swap-oob="true">{{template "status" .}}</div>
 {{end}}
 {{- template "banners" .}}
 {{- end}}

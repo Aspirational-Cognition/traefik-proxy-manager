@@ -32,6 +32,7 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 	mux.HandleFunc("GET /{$}", w.list)
 	mux.HandleFunc("GET /proxy-hosts/new", w.newForm)
 	mux.HandleFunc("GET /proxy-hosts/status", w.statuses)
+	mux.HandleFunc("GET /proxy-hosts/clashes", w.clashCheck)
 	mux.HandleFunc("POST /proxy-hosts", w.create)
 	mux.HandleFunc("GET /proxy-hosts/{id}/edit", w.editForm)
 	mux.HandleFunc("POST /proxy-hosts/{id}", w.update)
