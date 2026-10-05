@@ -48,5 +48,6 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 		rw.Header().Set("Content-Type", "application/json")
 		rw.Write(b)
 	})
-	return &App{Handler: mux, Port: s.port}, nil
+	// Refuse cross-origin form posts (CSRF); Traefik's GET polls are unaffected.
+	return &App{Handler: http.NewCrossOriginProtection().Handler(mux), Port: s.port}, nil
 }

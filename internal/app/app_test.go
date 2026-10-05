@@ -441,3 +441,17 @@ func TestStylesheetIsEmbedded(t *testing.T) {
 	a := newApp(t, internalOnly(t.TempDir()))
 	assertContains(t, get(t, a, "/static/app.css"), "tailwindcss")
 }
+
+func TestCrossSiteFormPostIsRefused(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	req := httptest.NewRequest("POST", "/proxy-hosts", strings.NewReader(hostForm("evil.example.com").Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+
+	if rec := do(t, a, req); rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-site POST /proxy-hosts = %d, want 403", rec.Code)
+	}
+	if got := routerNames(t, a); len(got) != 0 {
+		t.Fatalf("cross-site post reached Traefik: %v", got)
+	}
+}
