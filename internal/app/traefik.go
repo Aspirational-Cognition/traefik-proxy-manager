@@ -1,0 +1,100 @@
+package app
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
+	"sync"
+	"time"
+)
+
+// cacheFor is how long one batch of Traefik API reads serves every viewer.
+const cacheFor = 2 * time.Second
+
+// traefikAPI reads Traefik's API. Each refresh is one batch of calls,
+// cached and shared by every viewer, never a call per host.
+type traefikAPI struct {
+	base   *url.URL // basic auth, if any, rides in the URL
+	client *http.Client
+	now    func() time.Time
+
+	mu        sync.Mutex
+	fetchedAt time.Time
+	live      liveTraefik
+	err       error
+}
+
+// liveTraefik is what Traefik reports, as of one refresh.
+type liveTraefik struct {
+	routers map[string]apiRouter // by name, e.g. host-1-internal-http@http
+}
+
+type apiRouter struct {
+	Name   string   `json:"name"`
+	Status string   `json:"status"` // enabled, warning or disabled
+	Error  []string `json:"error"`
+}
+
+func newTraefikAPI(base *url.URL, now func() time.Time) *traefikAPI {
+	return &traefikAPI{base: base, client: &http.Client{Timeout: 2 * time.Second}, now: now}
+}
+
+// state is Traefik's latest reported state, refreshed when the cached one
+// is older than cacheFor. A failed refresh is cached too.
+func (t *traefikAPI) state() (liveTraefik, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.now().Sub(t.fetchedAt) >= cacheFor { // a zero fetchedAt is long ago
+		t.live, t.err = t.fetch()
+		t.fetchedAt = t.now()
+	}
+	return t.live, t.err
+}
+
+func (t *traefikAPI) fetch() (liveTraefik, error) {
+	routers, err := getAll[apiRouter](t, "api/http/routers")
+	if err != nil {
+		return liveTraefik{}, err
+	}
+	live := liveTraefik{routers: map[string]apiRouter{}}
+	for _, r := range routers {
+		live.routers[r.Name] = r
+	}
+	return live, nil
+}
+
+// getAll reads every page of an API list. X-Next-Page names the next page,
+// and is 1 on the last.
+func getAll[T any](t *traefikAPI, path string) ([]T, error) {
+	var all []T
+	for page := 1; ; {
+		u := t.base.JoinPath(path)
+		u.RawQuery = url.Values{"per_page": {"100"}, "page": {strconv.Itoa(page)}}.Encode()
+		var items []T
+		next, err := t.get(u, &items)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, items...)
+		if next <= page {
+			return all, nil
+		}
+		page = next
+	}
+}
+
+// get reads one API URL into v, returning its X-Next-Page.
+func (t *traefikAPI) get(u *url.URL, v any) (int, error) {
+	resp, err := t.client.Get(u.String())
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("Traefik API %s: %s", u.Path, resp.Status)
+	}
+	next, _ := strconv.Atoi(resp.Header.Get("X-Next-Page"))
+	return next, json.NewDecoder(resp.Body).Decode(v)
+}

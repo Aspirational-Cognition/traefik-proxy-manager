@@ -30,12 +30,21 @@ var staticFiles = func() http.Handler {
 type web struct {
 	settings settings
 	store    *store
+	polls    *pollLog
+	traefik  *traefikAPI
+	now      func() time.Time
 }
 
 // listView is the Proxy Hosts list; OOB marks an htmx out-of-band refresh.
 type listView struct {
-	Hosts []proxyHost
+	Hosts []hostRow
 	OOB   bool
+}
+
+// hostRow is one row of the list: the stored host and its live Status.
+type hostRow struct {
+	proxyHost
+	Status hostStatus
 }
 
 // formView is the add/edit modal: the values as typed, plus what blocks Save.
@@ -48,6 +57,7 @@ type formView struct {
 	ForceSSL, SkipCertCheck, Enabled          bool
 	Exposures                                 []exposureOption // none when the install has one side
 	Resolvers                                 []resolverOption
+	Problems                                  []string // Traefik's, for a host in Error
 	Errors                                    []string
 }
 
@@ -69,7 +79,7 @@ type resolverOption struct {
 }
 
 func (w *web) list(rw http.ResponseWriter, r *http.Request) {
-	render(rw, http.StatusOK, "list.html", listView{Hosts: w.store.all()})
+	render(rw, http.StatusOK, "list.html", listView{Hosts: w.rows()})
 }
 
 // newForm opens a blank modal. Sides list Internal first, so a new host
@@ -84,7 +94,13 @@ func (w *web) editForm(rw http.ResponseWriter, r *http.Request) {
 		http.NotFound(rw, r)
 		return
 	}
+	var problems []string
+	live, err := w.traefik.state()
+	if st := w.status(h, live, err); st.Value == "Error" {
+		problems = st.Messages
+	}
 	w.modal(rw, http.StatusOK, formView{
+		Problems:      problems,
 		ID:            h.ID,
 		UpdatedAt:     h.UpdatedAt.Format(time.RFC3339Nano),
 		Domains:       strings.Join(h.Domains, ", "),
@@ -193,14 +209,14 @@ func (w *web) respondWithList(rw http.ResponseWriter, r *http.Request, err error
 	case err != nil:
 		http.Error(rw, "Couldn't save the change: "+err.Error(), http.StatusInternalServerError)
 	default:
-		render(rw, http.StatusOK, "hosts", listView{Hosts: w.store.all()})
+		render(rw, http.StatusOK, "hosts", listView{Hosts: w.rows()})
 	}
 }
 
 // saved answers a successful Save: an empty #modal closes it, and the list
 // refreshes out of band.
 func (w *web) saved(rw http.ResponseWriter) {
-	render(rw, http.StatusOK, "hosts", listView{Hosts: w.store.all(), OOB: true})
+	render(rw, http.StatusOK, "hosts", listView{Hosts: w.rows(), OOB: true})
 }
 
 // pathID is the Proxy Host ID in the URL; 0, which no host has, if malformed.

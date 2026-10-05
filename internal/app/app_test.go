@@ -23,7 +23,7 @@ var t0 = time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
 // internalOnly is an install that configures only the Internal side.
 func internalOnly(dataDir string) map[string]string {
 	return map[string]string{
-		"TPM_TRAEFIK_API_URL":           "http://traefik:8080",
+		"TPM_TRAEFIK_API_URL":           "http://127.0.0.1:1", // refused: Traefik is unreachable
 		"TPM_ENTRYPOINT_INTERNAL_HTTP":  "web-int",
 		"TPM_ENTRYPOINT_INTERNAL_HTTPS": "websecure-int",
 		"TPM_CERT_RESOLVERS":            "le-dns,le-http",

@@ -88,8 +88,8 @@ func (s *store) add(h proxyHost) error {
 	next := s.data
 	h.ID = next.NextID
 	next.NextID++
-	h.CreatedAt = s.now().UTC()
-	h.UpdatedAt = h.CreatedAt
+	h.UpdatedAt = s.stamp()
+	h.CreatedAt = h.UpdatedAt
 	next.ProxyHosts = append(slices.Clone(next.ProxyHosts), h)
 	return s.save(next)
 }
@@ -109,7 +109,7 @@ func (s *store) update(id int, seen *time.Time, change func(*proxyHost)) error {
 	next := s.data
 	next.ProxyHosts = slices.Clone(next.ProxyHosts)
 	change(&next.ProxyHosts[i])
-	next.ProxyHosts[i].UpdatedAt = s.now().UTC()
+	next.ProxyHosts[i].UpdatedAt = s.stamp()
 	return s.save(next)
 }
 
@@ -171,9 +171,38 @@ func (s *store) write(d dataFile) error {
 	return os.Rename(tmp.Name(), s.path)
 }
 
-// all returns a copy of every stored Proxy Host.
-func (s *store) all() []proxyHost {
+// versioned returns every stored Proxy Host and the store's version, the
+// newest updatedAt: a host belongs to every version no older than its own.
+func (s *store) versioned() ([]proxyHost, time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.Clone(s.data.ProxyHosts)
+	return slices.Clone(s.data.ProxyHosts), s.version()
+}
+
+// all returns a copy of every stored Proxy Host.
+func (s *store) all() []proxyHost {
+	hosts, _ := s.versioned()
+	return hosts
+}
+
+// version is the newest updatedAt. The caller holds s.mu.
+func (s *store) version() time.Time {
+	var v time.Time
+	for _, h := range s.data.ProxyHosts {
+		if h.UpdatedAt.After(v) {
+			v = h.UpdatedAt
+		}
+	}
+	return v
+}
+
+// stamp is a save's updatedAt: now, but always after the current version,
+// so a save is never taken for one Traefik already fetched, even if the
+// clock went back. The caller holds s.mu.
+func (s *store) stamp() time.Time {
+	t, v := s.now().UTC(), s.version()
+	if !t.After(v) {
+		t = v.Add(time.Nanosecond)
+	}
+	return t
 }

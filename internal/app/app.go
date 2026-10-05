@@ -25,11 +25,13 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := &web{settings: s, store: st}
+	polls := &pollLog{}
+	w := &web{settings: s, store: st, polls: polls, traefik: newTraefikAPI(s.traefikAPI, now), now: now}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", w.list)
 	mux.HandleFunc("GET /proxy-hosts/new", w.newForm)
+	mux.HandleFunc("GET /proxy-hosts/status", w.statuses)
 	mux.HandleFunc("POST /proxy-hosts", w.create)
 	mux.HandleFunc("GET /proxy-hosts/{id}/edit", w.editForm)
 	mux.HandleFunc("POST /proxy-hosts/{id}", w.update)
@@ -40,7 +42,9 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 	mux.HandleFunc("GET /traefik/config", func(rw http.ResponseWriter, r *http.Request) {
 		// Anything short of the full snapshot is a 503, so Traefik keeps its
 		// last good config instead of dropping hosts.
-		snap, err := generate(st.all(), s)
+		at := now()
+		hosts, version := st.versioned()
+		snap, err := generate(hosts, s)
 		var b []byte
 		if err == nil {
 			b, err = json.Marshal(snap)
@@ -50,6 +54,7 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 			http.Error(rw, "tpm can't render its config: "+err.Error(), http.StatusServiceUnavailable)
 			return
 		}
+		polls.record(at, version)
 		rw.Header().Set("Content-Type", "application/json")
 		rw.Write(b)
 	})

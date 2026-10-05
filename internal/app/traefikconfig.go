@@ -62,6 +62,24 @@ type server struct {
 	URL string `json:"url"`
 }
 
+// sidesOf is the configured sides h's Exposure covers. Sides the install
+// doesn't configure get no routers.
+func (s settings) sidesOf(h proxyHost) []side {
+	var sides []side
+	for _, sd := range s.sides {
+		if h.Exposure == sd.name || h.Exposure == "both" {
+			sides = append(sides, sd)
+		}
+	}
+	return sides
+}
+
+// routerName is the name of h's router on one entrypoint (http or https) of
+// a side. Each router has a single entrypoint, so Traefik never renames it.
+func routerName(h proxyHost, sd side, entrypoint string) string {
+	return fmt.Sprintf("host-%d-%s-%s", h.ID, sd.name, entrypoint)
+}
+
 // generate maps the Proxy Hosts to the Traefik dynamic-config snapshot. It
 // fails rather than leave out or mangle a host it can't render safely.
 func generate(hosts []proxyHost, s settings) (snapshot, error) {
@@ -94,13 +112,9 @@ func generate(hosts []proxyHost, s settings) (snapshot, error) {
 			httpMiddlewares = []string{forceSSLMiddleware}
 			snap.HTTP.Middlewares[forceSSLMiddleware] = middleware{redirectScheme{"https", true}}
 		}
-		// Sides the install doesn't configure get no routers.
-		for _, sd := range s.sides {
-			if h.Exposure != sd.name && h.Exposure != "both" {
-				continue
-			}
-			snap.HTTP.Routers[name+"-"+sd.name+"-http"] = router{EntryPoints: []string{sd.http}, Rule: rule, Middlewares: httpMiddlewares, Service: name}
-			snap.HTTP.Routers[name+"-"+sd.name+"-https"] = router{EntryPoints: []string{sd.https}, Rule: rule, Service: name, TLS: &routerTLS{h.CertResolver}}
+		for _, sd := range s.sidesOf(h) {
+			snap.HTTP.Routers[routerName(h, sd, "http")] = router{EntryPoints: []string{sd.http}, Rule: rule, Middlewares: httpMiddlewares, Service: name}
+			snap.HTTP.Routers[routerName(h, sd, "https")] = router{EntryPoints: []string{sd.https}, Rule: rule, Service: name, TLS: &routerTLS{h.CertResolver}}
 			snap.HTTP.Services[name] = service{lb}
 		}
 	}

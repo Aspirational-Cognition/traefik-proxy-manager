@@ -22,6 +22,7 @@
     <h1 class="text-2xl font-semibold">Proxy Hosts <span class="text-fg-muted text-base">{{len .Hosts}}</span></h1>
     <button hx-get="/proxy-hosts/new" hx-target="#modal" class="bg-accent hover:bg-accent-hover text-on-accent px-4 py-2 rounded">Add Proxy Host</button>
   </div>
+  <div hx-get="/proxy-hosts/status" hx-trigger="every 5s" hx-swap="none"></div>
   <div class="bg-surface rounded border border-line overflow-x-auto">
     <table class="w-full text-sm">
       <thead class="text-left text-xs uppercase text-fg-muted"><tr><th class="p-3">Source</th><th class="p-3">Destination</th><th class="p-3">Exposure</th><th class="p-3">SSL</th><th class="p-3">Status</th><th></th></tr></thead>
@@ -32,7 +33,7 @@
           <td class="p-3 font-mono text-xs text-fg-soft">{{.Forward.URL}}{{if .SkipCertCheck}} <span title="Certificate check skipped" class="text-warn">⚠︎</span>{{end}}</td>
           <td class="p-3">{{template "exposure-badge" .Exposure}}</td>
           <td class="p-3 text-xs text-fg-soft">{{if .ForceSSL}}🔒 Force SSL{{else}}HTTP allowed{{end}}<div class="text-fg-muted">{{.CertResolver}}</div></td>
-          <td class="p-3 text-xs text-fg-soft">{{if not .Enabled}}<span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-fg-muted"></span>Disabled</span>{{end}}</td>
+          <td class="p-3 text-xs text-fg-soft"><div id="status-{{.ID}}">{{template "status" .Status}}</div></td>
           <td class="p-3 text-right whitespace-nowrap text-xs space-x-2">
             <button hx-get="/proxy-hosts/{{.ID}}/edit" hx-target="#modal" class="text-link hover:underline">Edit</button>
             <button hx-post="/proxy-hosts/{{.ID}}/{{if .Enabled}}disable{{else}}enable{{end}}" hx-target="#proxy-hosts" hx-swap="outerHTML" class="text-fg-muted hover:underline">{{if .Enabled}}Disable{{else}}Enable{{end}}</button>
@@ -53,4 +54,14 @@
 {{- else if eq . "external"}}<span class="inline-block rounded px-2 py-0.5 text-xs font-medium bg-external/15 text-external-soft">External</span>
 {{- else if eq . "both"}}<span class="inline-block rounded px-2 py-0.5 text-xs font-medium bg-both/15 text-both-soft">Both</span>
 {{- end}}
+{{- end}}
+
+{{define "status"}}
+<span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full {{if eq .Value "Online"}}bg-online{{else if eq .Value "Pending"}}bg-pending{{else if eq .Value "Error"}}bg-danger{{else if eq .Value "Unknown"}}bg-fg-faint{{else}}bg-fg-muted{{end}}"></span>{{.Value}}</span>
+{{- range .Messages}}<div class="text-danger">{{.}}</div>{{end}}
+{{- end}}
+
+{{define "statuses"}}
+{{- range .}}<div id="status-{{.ID}}" hx-swap-oob="true">{{template "status" .Status}}</div>
+{{end}}
 {{- end}}

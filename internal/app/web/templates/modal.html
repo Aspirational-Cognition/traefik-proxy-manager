@@ -5,6 +5,12 @@
     <div class="px-5 py-3 border-b border-line font-semibold">{{if .ID}}Edit{{else}}New{{end}} Proxy Host</div>
     {{with .UpdatedAt}}<input type="hidden" name="updatedAt" value="{{.}}">{{end}}
     <div class="p-5">
+      {{with .Problems}}
+      <div class="rounded bg-warn/10 border border-warn/40 text-warn px-4 py-2 text-sm mb-2">
+        <b>Traefik reported a problem:</b>
+        {{range .}}<div>{{.}}</div>{{end}}
+      </div>
+      {{end}}
       {{with .Errors}}
       <div class="rounded bg-danger/10 border border-danger/40 text-danger px-4 py-2 text-sm">
         {{range .}}<div>{{.}}</div>{{end}}
