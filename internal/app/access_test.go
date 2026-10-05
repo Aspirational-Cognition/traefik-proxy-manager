@@ -66,6 +66,7 @@ func accessApp(t *testing.T) (*app.App, *fakeTraefik, *clock) {
 		fakeMiddleware{"name": "lan-only@file", "type": "ipallowlist", "ipAllowList": map[string]any{}},
 		fakeMiddleware{"name": "crowdsec@docker", "type": "crowdsec-bouncer", "plugin": map[string]any{"crowdsec-bouncer": map[string]any{}}},
 		fakeMiddleware{"name": "tpm-force-ssl@http", "type": "redirectscheme", "redirectScheme": map[string]any{}},
+		fakeMiddleware{"name": "dashboard_redirect@internal", "type": "redirectregex", "redirectRegex": map[string]any{}},
 	)
 	c := &clock{now: t0}
 	env := withDefaults(t.TempDir())
@@ -98,6 +99,9 @@ func TestAccessSectionListsTraefiksMiddlewaresByNameAndType(t *testing.T) {
 	assertContains(t, accessItem(t, modal, "crowdsec@docker"), "crowdsec · crowdsec-bouncer")
 	if strings.Contains(modal, "tpm-force-ssl") {
 		t.Errorf("modal offers tpm's own helper as an Access rule:\n%s", modal)
+	}
+	if strings.Contains(modal, "dashboard_redirect") {
+		t.Errorf("modal offers Traefik's own dashboard Middleware as an Access rule:\n%s", modal)
 	}
 }
 

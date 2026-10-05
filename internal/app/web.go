@@ -169,7 +169,8 @@ func (w *web) accessPicker(f *formView) {
 		others = append(others, byExposure[e.Value]...)
 	}
 	for name := range live.middlewares {
-		if name != forceSSLMiddleware+"@http" { // tpm's own, not an Access rule
+		// tpm's own and Traefik's own (e.g. its dashboard's) aren't Access rules.
+		if name != forceSSLMiddleware+"@http" && !strings.HasSuffix(name, "@internal") {
 			others = append(others, name)
 		}
 	}
