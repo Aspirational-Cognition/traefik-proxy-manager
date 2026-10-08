@@ -12,7 +12,7 @@ type snapshot struct {
 
 type httpConfig struct {
 	Routers           map[string]router           `json:"routers"`
-	Services          map[string]service          `json:"services"`
+	Services          map[string]service          `json:"services,omitempty"`
 	Middlewares       map[string]middleware       `json:"middlewares,omitempty"`
 	ServersTransports map[string]serversTransport `json:"serversTransports,omitempty"`
 }
@@ -24,6 +24,11 @@ type router struct {
 	Service     string     `json:"service"`
 	TLS         *routerTLS `json:"tls,omitempty"`
 }
+
+// placeholderRouter is the one router served when no Proxy Host has any:
+// Traefik rejects an empty routers or services map and keeps serving the
+// stale hosts. Its name isn't host-*, so it never counts as a Proxy Host.
+const placeholderRouter = "tpm-placeholder"
 
 type routerTLS struct {
 	CertResolver string `json:"certResolver"`
@@ -117,6 +122,9 @@ func generate(hosts []proxyHost, s settings) (snapshot, error) {
 			snap.HTTP.Routers[routerName(h, sd, "https")] = router{EntryPoints: []string{sd.https}, Rule: rule, Middlewares: h.Middlewares, Service: name, TLS: &routerTLS{h.CertResolver}}
 			snap.HTTP.Services[name] = service{lb}
 		}
+	}
+	if len(snap.HTTP.Routers) == 0 {
+		snap.HTTP.Routers[placeholderRouter] = router{EntryPoints: []string{s.sides[0].http}, Rule: "Host(`tpm-placeholder.invalid`)", Service: "noop@internal"}
 	}
 	return snap, nil
 }
