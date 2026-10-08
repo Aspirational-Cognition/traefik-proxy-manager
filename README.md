@@ -131,6 +131,7 @@ saying what's wrong, if any are.
 | `TPM_DEFAULT_MIDDLEWARES_EXTERNAL` | no | none | The same for External Proxy Hosts. Proxy Hosts exposed on Both get External's defaults. |
 | `TPM_PORT` | no | `8080` | Port tpm listens on inside the container. If you change it, change the `providers.http` endpoint and the `loadbalancer.server.port` label to match. |
 | `TPM_DATA_DIR` | no | `/data` | Where tpm keeps `proxy-hosts.json`. |
+| `TPM_RESPONSE_HEADER_TIMEOUT` | no | none | How long Proxy Hosts with "Skip certificate check" wait for the Forward Target's response headers before Traefik returns a 504, e.g. `30s`. Traefik doesn't apply its static `serversTransport.forwardingTimeouts.responseHeaderTimeout` to them, so if you set that, set this to the same value. |
 
 ### Exposure sides
 

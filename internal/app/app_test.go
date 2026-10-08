@@ -251,9 +251,12 @@ func TestMissingOrMalformedSettingsFailStartup(t *testing.T) {
 			delete(e, "TPM_ENTRYPOINT_INTERNAL_HTTP")
 			delete(e, "TPM_ENTRYPOINT_INTERNAL_HTTPS")
 		}, "TPM_ENTRYPOINT_"},
-		"half a side":       {func(e map[string]string) { e["TPM_ENTRYPOINT_EXTERNAL_HTTP"] = "web" }, "TPM_ENTRYPOINT_EXTERNAL_HTTPS"},
-		"bad port":          {func(e map[string]string) { e["TPM_PORT"] = "eighty" }, "TPM_PORT"},
-		"port out of range": {func(e map[string]string) { e["TPM_PORT"] = "70000" }, "TPM_PORT"},
+		"half a side":                      {func(e map[string]string) { e["TPM_ENTRYPOINT_EXTERNAL_HTTP"] = "web" }, "TPM_ENTRYPOINT_EXTERNAL_HTTPS"},
+		"bad port":                         {func(e map[string]string) { e["TPM_PORT"] = "eighty" }, "TPM_PORT"},
+		"port out of range":                {func(e map[string]string) { e["TPM_PORT"] = "70000" }, "TPM_PORT"},
+		"bad response header timeout":      {func(e map[string]string) { e["TPM_RESPONSE_HEADER_TIMEOUT"] = "abc" }, "TPM_RESPONSE_HEADER_TIMEOUT"},
+		"zero response header timeout":     {func(e map[string]string) { e["TPM_RESPONSE_HEADER_TIMEOUT"] = "0s" }, "TPM_RESPONSE_HEADER_TIMEOUT"},
+		"negative response header timeout": {func(e map[string]string) { e["TPM_RESPONSE_HEADER_TIMEOUT"] = "-5s" }, "TPM_RESPONSE_HEADER_TIMEOUT"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			env := internalOnly(t.TempDir())
@@ -888,6 +891,34 @@ func TestSkipCertificateCheckUsesOneSharedTransportForHTTPSTargets(t *testing.T)
 	}
 	if modal, _ := editForm(t, a, 3); strings.Contains(modal, `name="skipCertCheck" checked`) {
 		t.Error("http host was saved skipping the certificate check")
+	}
+}
+
+func TestResponseHeaderTimeoutGoesOnTheSkipCertCheckTransport(t *testing.T) {
+	env := internalOnly(t.TempDir())
+	env["TPM_RESPONSE_HEADER_TIMEOUT"] = "30s"
+	a := newApp(t, env)
+	form := hostForm("nas.example.com")
+	form.Set("scheme", "https")
+	form.Set("skipCertCheck", "on")
+
+	addHost(t, a, form)
+
+	want := map[string]any{"tpm-skip-cert-check": map[string]any{"insecureSkipVerify": true, "forwardingTimeouts": map[string]any{"responseHeaderTimeout": "30s"}}}
+	if got := traefikConfig(t, a)["http"].(map[string]any)["serversTransports"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("serversTransports = %v, want %v", got, want)
+	}
+}
+
+func TestResponseHeaderTimeoutAloneAddsNoTransport(t *testing.T) {
+	env := internalOnly(t.TempDir())
+	env["TPM_RESPONSE_HEADER_TIMEOUT"] = "30s"
+	a := newApp(t, env)
+
+	addHost(t, a, hostForm("nas.example.com"))
+
+	if got, ok := traefikConfig(t, a)["http"].(map[string]any)["serversTransports"]; ok {
+		t.Errorf("serversTransports = %v, want none", got)
 	}
 }
 

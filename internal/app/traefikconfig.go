@@ -56,7 +56,12 @@ type loadBalancer struct {
 }
 
 type serversTransport struct {
-	InsecureSkipVerify bool `json:"insecureSkipVerify"`
+	InsecureSkipVerify bool                `json:"insecureSkipVerify"`
+	ForwardingTimeouts *forwardingTimeouts `json:"forwardingTimeouts,omitempty"`
+}
+
+type forwardingTimeouts struct {
+	ResponseHeaderTimeout string `json:"responseHeaderTimeout"`
 }
 
 // skipCertCheckTransport is the shared transport for Forward Targets whose
@@ -110,7 +115,7 @@ func generate(hosts []proxyHost, s settings) (snapshot, error) {
 		lb := loadBalancer{Servers: []server{{h.Forward.URL()}}}
 		if h.SkipCertCheck {
 			lb.ServersTransport = skipCertCheckTransport
-			snap.HTTP.ServersTransports[skipCertCheckTransport] = serversTransport{true}
+			snap.HTTP.ServersTransports[skipCertCheckTransport] = serversTransport{true, s.timeouts}
 		}
 		httpMiddlewares := h.Middlewares // Force SSL off: http forwards like https
 		if h.ForceSSL {
