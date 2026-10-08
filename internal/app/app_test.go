@@ -63,18 +63,28 @@ func traefikConfig(t *testing.T, h http.Handler) map[string]any {
 	return snap
 }
 
-func TestFreshInstallServesEmptySnapshot(t *testing.T) {
+// placeholder is the whole snapshot when no Proxy Host is enabled: Traefik
+// rejects an empty routers or services map and would keep serving stale hosts.
+func placeholderSnapshot(entrypoint string) string {
+	return `{"http":{"routers":{"tpm-placeholder":{"entryPoints":["` + entrypoint + `"],"rule":"Host(` + "`tpm-placeholder.invalid`" + `)","service":"noop@internal"}}}}`
+}
+
+func assertSnapshot(t *testing.T, h http.Handler, want string) {
+	t.Helper()
+	var wantSnap map[string]any
+	if err := json.Unmarshal([]byte(want), &wantSnap); err != nil {
+		t.Fatal(err)
+	}
+	if got := traefikConfig(t, h); !reflect.DeepEqual(got, wantSnap) {
+		gotJSON, _ := json.MarshalIndent(got, "", "  ")
+		t.Fatalf("snapshot mismatch, got:\n%s\nwant:\n%s", gotJSON, want)
+	}
+}
+
+func TestFreshInstallServesOnlyThePlaceholder(t *testing.T) {
 	a := newApp(t, internalOnly(t.TempDir()))
 
-	snap := traefikConfig(t, a)
-
-	httpCfg, ok := snap["http"].(map[string]any)
-	if !ok {
-		t.Fatalf("snapshot has no http section: %v", snap)
-	}
-	if len(httpCfg["routers"].(map[string]any)) != 0 || len(httpCfg["services"].(map[string]any)) != 0 {
-		t.Fatalf("want zero routers and services, got %v", httpCfg)
-	}
+	assertSnapshot(t, a, placeholderSnapshot("web-int"))
 }
 
 // addHost submits the Add Proxy Host form.
@@ -108,14 +118,7 @@ func TestAddedProxyHostIsServedToTraefik(t *testing.T) {
 		},
 		"services":{"host-1":{"loadBalancer":{"servers":[{"url":"http://192.168.1.10:5000"}]}}}
 	}}`
-	var wantSnap map[string]any
-	if err := json.Unmarshal([]byte(want), &wantSnap); err != nil {
-		t.Fatal(err)
-	}
-	if got := traefikConfig(t, a); !reflect.DeepEqual(got, wantSnap) {
-		gotJSON, _ := json.MarshalIndent(got, "", "  ")
-		t.Fatalf("snapshot mismatch, got:\n%s", gotJSON)
-	}
+	assertSnapshot(t, a, want)
 }
 
 func TestExternalOnlyInstallServesExternalRouters(t *testing.T) {
@@ -138,6 +141,17 @@ func TestExternalOnlyInstallServesExternalRouters(t *testing.T) {
 			t.Errorf("router %s = %v, want entryPoints [%s]", name, routers[name], ep)
 		}
 	}
+}
+
+func TestExternalOnlyInstallServesThePlaceholderOnItsEntrypoint(t *testing.T) {
+	env := internalOnly(t.TempDir())
+	delete(env, "TPM_ENTRYPOINT_INTERNAL_HTTP")
+	delete(env, "TPM_ENTRYPOINT_INTERNAL_HTTPS")
+	env["TPM_ENTRYPOINT_EXTERNAL_HTTP"] = "web"
+	env["TPM_ENTRYPOINT_EXTERNAL_HTTPS"] = "websecure"
+	a := newApp(t, env)
+
+	assertSnapshot(t, a, placeholderSnapshot("web"))
 }
 
 func routerNames(t *testing.T, h http.Handler) []string {
@@ -237,9 +251,12 @@ func TestMissingOrMalformedSettingsFailStartup(t *testing.T) {
 			delete(e, "TPM_ENTRYPOINT_INTERNAL_HTTP")
 			delete(e, "TPM_ENTRYPOINT_INTERNAL_HTTPS")
 		}, "TPM_ENTRYPOINT_"},
-		"half a side":       {func(e map[string]string) { e["TPM_ENTRYPOINT_EXTERNAL_HTTP"] = "web" }, "TPM_ENTRYPOINT_EXTERNAL_HTTPS"},
-		"bad port":          {func(e map[string]string) { e["TPM_PORT"] = "eighty" }, "TPM_PORT"},
-		"port out of range": {func(e map[string]string) { e["TPM_PORT"] = "70000" }, "TPM_PORT"},
+		"half a side":                      {func(e map[string]string) { e["TPM_ENTRYPOINT_EXTERNAL_HTTP"] = "web" }, "TPM_ENTRYPOINT_EXTERNAL_HTTPS"},
+		"bad port":                         {func(e map[string]string) { e["TPM_PORT"] = "eighty" }, "TPM_PORT"},
+		"port out of range":                {func(e map[string]string) { e["TPM_PORT"] = "70000" }, "TPM_PORT"},
+		"bad response header timeout":      {func(e map[string]string) { e["TPM_RESPONSE_HEADER_TIMEOUT"] = "abc" }, "TPM_RESPONSE_HEADER_TIMEOUT"},
+		"zero response header timeout":     {func(e map[string]string) { e["TPM_RESPONSE_HEADER_TIMEOUT"] = "0s" }, "TPM_RESPONSE_HEADER_TIMEOUT"},
+		"negative response header timeout": {func(e map[string]string) { e["TPM_RESPONSE_HEADER_TIMEOUT"] = "-5s" }, "TPM_RESPONSE_HEADER_TIMEOUT"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			env := internalOnly(t.TempDir())
@@ -356,9 +373,7 @@ func TestSaveIsBlockedForHostsTraefikWouldReject(t *testing.T) {
 				t.Fatalf("POST /proxy-hosts = %d, want 422", rec.Code)
 			}
 			assertContains(t, rec.Body.String(), tc.wantMsg, "New Proxy Host")
-			if got := routerNames(t, a); len(got) != 0 {
-				t.Fatalf("blocked host reached Traefik: %v", got)
-			}
+			assertSnapshot(t, a, placeholderSnapshot("web-int"))
 		})
 	}
 }
@@ -462,9 +477,7 @@ func TestCrossSiteFormPostIsRefused(t *testing.T) {
 	if rec := do(t, a, req); rec.Code != http.StatusForbidden {
 		t.Fatalf("cross-site POST /proxy-hosts = %d, want 403", rec.Code)
 	}
-	if got := routerNames(t, a); len(got) != 0 {
-		t.Fatalf("cross-site post reached Traefik: %v", got)
-	}
+	assertSnapshot(t, a, placeholderSnapshot("web-int"))
 }
 
 func post(t *testing.T, h http.Handler, path string, form url.Values) *httptest.ResponseRecorder {
@@ -580,6 +593,15 @@ func TestDeletingAHostRemovesItFromTraefik(t *testing.T) {
 	}
 }
 
+func TestDeletingTheLastHostLeavesOnlyThePlaceholder(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	addHost(t, a, hostForm("one.example.com"))
+
+	do(t, a, httptest.NewRequest("DELETE", "/proxy-hosts/1", nil))
+
+	assertSnapshot(t, a, placeholderSnapshot("web-int"))
+}
+
 func TestIDsAreNeverReusedAfterDeletingTheHighestAndRestarting(t *testing.T) {
 	env := internalOnly(t.TempDir())
 	a := newApp(t, env)
@@ -607,9 +629,7 @@ func TestDisablingAHostFromItsRowTakesItOutOfTraefik(t *testing.T) {
 		t.Fatalf("disable = %d: %s", rec.Code, rec.Body)
 	}
 	assertContains(t, rec.Body.String(), "Disabled", `hx-post="/proxy-hosts/1/enable"`)
-	if got := routerNames(t, a); len(got) != 0 {
-		t.Fatalf("disabled host still served: %v", got)
-	}
+	assertSnapshot(t, a, placeholderSnapshot("web-int"))
 
 	post(t, a, "/proxy-hosts/1/enable", nil)
 
@@ -629,9 +649,7 @@ func TestEnabledToggleInTheModal(t *testing.T) {
 
 	addHost(t, a, form)
 
-	if got := routerNames(t, a); len(got) != 0 {
-		t.Fatalf("host saved switched off is served: %v", got)
-	}
+	assertSnapshot(t, a, placeholderSnapshot("web-int"))
 	modal, updatedAt := editForm(t, a, 1)
 	if strings.Contains(modal, `name="enabled" checked`) {
 		t.Fatal("edit modal shows a disabled host as enabled")
@@ -677,6 +695,12 @@ func internalAndExternal(dataDir string) map[string]string {
 	env["TPM_ENTRYPOINT_EXTERNAL_HTTP"] = "web"
 	env["TPM_ENTRYPOINT_EXTERNAL_HTTPS"] = "websecure"
 	return env
+}
+
+func TestBothSidesInstallServesThePlaceholderOnInternal(t *testing.T) {
+	a := newApp(t, internalAndExternal(t.TempDir()))
+
+	assertSnapshot(t, a, placeholderSnapshot("web-int"))
 }
 
 func TestBothSidesInstallOffersExposureCardsDefaultingToInternal(t *testing.T) {
@@ -867,6 +891,34 @@ func TestSkipCertificateCheckUsesOneSharedTransportForHTTPSTargets(t *testing.T)
 	}
 	if modal, _ := editForm(t, a, 3); strings.Contains(modal, `name="skipCertCheck" checked`) {
 		t.Error("http host was saved skipping the certificate check")
+	}
+}
+
+func TestResponseHeaderTimeoutGoesOnTheSkipCertCheckTransport(t *testing.T) {
+	env := internalOnly(t.TempDir())
+	env["TPM_RESPONSE_HEADER_TIMEOUT"] = "30s"
+	a := newApp(t, env)
+	form := hostForm("nas.example.com")
+	form.Set("scheme", "https")
+	form.Set("skipCertCheck", "on")
+
+	addHost(t, a, form)
+
+	want := map[string]any{"tpm-skip-cert-check": map[string]any{"insecureSkipVerify": true, "forwardingTimeouts": map[string]any{"responseHeaderTimeout": "30s"}}}
+	if got := traefikConfig(t, a)["http"].(map[string]any)["serversTransports"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("serversTransports = %v, want %v", got, want)
+	}
+}
+
+func TestResponseHeaderTimeoutAloneAddsNoTransport(t *testing.T) {
+	env := internalOnly(t.TempDir())
+	env["TPM_RESPONSE_HEADER_TIMEOUT"] = "30s"
+	a := newApp(t, env)
+
+	addHost(t, a, hostForm("nas.example.com"))
+
+	if got, ok := traefikConfig(t, a)["http"].(map[string]any)["serversTransports"]; ok {
+		t.Errorf("serversTransports = %v, want none", got)
 	}
 }
 

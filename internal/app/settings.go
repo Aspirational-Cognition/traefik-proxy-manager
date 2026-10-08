@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // side is one Exposure side the install configures: an http + https
@@ -24,6 +25,7 @@ type settings struct {
 	defaults      map[string][]string // each side's default Access rules, fully qualified, in order
 	port          int
 	dataDir       string
+	timeouts      *forwardingTimeouts // for the skip-cert-check transport, which doesn't inherit Traefik's static ones; nil if unset
 }
 
 // parseSettings reads and validates the TPM_* env vars, reporting every
@@ -79,6 +81,12 @@ func parseSettings(getenv func(string) string) (settings, error) {
 	}
 
 	s.dataDir = cmp.Or(getenv("TPM_DATA_DIR"), "/data")
+	if v := getenv("TPM_RESPONSE_HEADER_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err != nil || d <= 0 {
+			errs = append(errs, fmt.Errorf("TPM_RESPONSE_HEADER_TIMEOUT %q isn't a positive duration, e.g. 30s", v))
+		}
+		s.timeouts = &forwardingTimeouts{v}
+	}
 	return s, errors.Join(errs...)
 }
 

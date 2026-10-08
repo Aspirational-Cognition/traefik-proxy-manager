@@ -295,9 +295,7 @@ func TestHostWithNoConfiguredSideLeftShowsErrorAndGetsNoRouters(t *testing.T) {
 	if strings.Contains(status, "Traefik didn") {
 		t.Errorf("Status blames Traefik for a host tpm gave it no routers for:\n%s", status)
 	}
-	if got := routerNames(t, a); len(got) != 0 {
-		t.Errorf("routers = %v, want none", got)
-	}
+	assertSnapshot(t, a, placeholderSnapshot("web-int"))
 }
 
 func TestUnconfiguredResolverShowsWarningAndTpmKeepsServingIt(t *testing.T) {
