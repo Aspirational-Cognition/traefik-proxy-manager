@@ -51,6 +51,12 @@ func TestProxyLoginHostHasNoSignOut(t *testing.T) {
 	assertNotContains(t, rec.Body.String(), "Sign out", "/logout")
 }
 
+func TestProxyLoginHostStillHidesTraefikConfigFromRouters(t *testing.T) {
+	for _, env := range []func(string) map[string]string{basicLogin, formLogin} {
+		assertConfigHiddenFromRouters(t, newApp(t, withProxyLogin(env(t.TempDir()))), "tpm.example.com")
+	}
+}
+
 func TestEveryOtherHostIsAskedForLocalLogin(t *testing.T) {
 	for style, tc := range map[string]struct {
 		env       func(string) map[string]string

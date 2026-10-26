@@ -21,12 +21,12 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := newLogin(s.login, now)
-	log.Print(l)
 	st, err := openStore(s.dataDir, now)
 	if err != nil {
 		return nil, err
 	}
+	l := newLogin(s.login, now)
+	log.Print(l)
 	polls := &pollLog{}
 	w := &web{settings: s, store: st, polls: polls, traefik: newTraefikAPI(s.traefikAPI, now), now: now}
 

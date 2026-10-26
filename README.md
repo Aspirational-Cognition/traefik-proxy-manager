@@ -213,7 +213,7 @@ saying what's wrong, if any are. For which login settings each setup needs, see 
 
 | Variable | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `TPM_TRAEFIK_API_URL` | yes | | Traefik's API, e.g. `http://traefik:8080`. Basic auth, if any, goes in the URL. |
+| `TPM_TRAEFIK_API_URL` | yes | | Traefik's API, e.g. `http://traefik:8080`. Credentials, if any, go in the URL. |
 | `TPM_ENTRYPOINT_INTERNAL_HTTP` | one side | | Traefik entrypoint for Internal plain HTTP, e.g. `web-int`. |
 | `TPM_ENTRYPOINT_INTERNAL_HTTPS` | one side | | Traefik entrypoint for Internal HTTPS, e.g. `websecure-int`. |
 | `TPM_ENTRYPOINT_EXTERNAL_HTTP` | one side | | Traefik entrypoint for External plain HTTP, e.g. `web`. |

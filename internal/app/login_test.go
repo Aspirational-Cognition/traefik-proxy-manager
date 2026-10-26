@@ -13,18 +13,14 @@ import (
 )
 
 func TestLocalLoginSettingsFailStartup(t *testing.T) {
-	for name, tc := range map[string]struct {
-		env    map[string]string
-		want   []string
-		unwant []string
-	}{
+	type startupCase struct {
+		env          map[string]string
+		want, unwant []string
+	}
+	cases := map[string]startupCase{
 		"style isn't exact": {
 			map[string]string{"TPM_LOCAL_AUTH": "Basic", "TPM_AUTH_USERNAME": "admin", "TPM_AUTH_PASSWORD": "pw"},
 			[]string{`TPM_LOCAL_AUTH "Basic" isn't basic or form`}, nil,
-		},
-		"username with a colon in form style": {
-			map[string]string{"TPM_LOCAL_AUTH": "form", "TPM_AUTH_USERNAME": "ad:min", "TPM_AUTH_PASSWORD": "pw"},
-			[]string{`TPM_AUTH_USERNAME can't contain ":" (Basic style splits on it)`}, nil,
 		},
 		"no credentials": {
 			map[string]string{"TPM_LOCAL_AUTH": "basic"},
@@ -46,10 +42,6 @@ func TestLocalLoginSettingsFailStartup(t *testing.T) {
 			map[string]string{"TPM_AUTH_PASSWORD": "pw"},
 			[]string{"TPM_AUTH_PASSWORD only applies with Local Login; set TPM_LOCAL_AUTH to basic or form, or remove it"},
 			[]string{"TPM_AUTH_USERNAME"},
-		},
-		"username with a colon": {
-			map[string]string{"TPM_LOCAL_AUTH": "basic", "TPM_AUTH_USERNAME": "ad:min", "TPM_AUTH_PASSWORD": "pw"},
-			[]string{`TPM_AUTH_USERNAME can't contain ":" (Basic style splits on it)`}, nil,
 		},
 		"proxy login host that isn't bare": {
 			map[string]string{"TPM_LOCAL_AUTH": "form", "TPM_AUTH_USERNAME": "admin", "TPM_AUTH_PASSWORD": "pw", "TPM_PROXY_LOGIN_HOST": "https://tpm.example.com"},
@@ -80,7 +72,14 @@ func TestLocalLoginSettingsFailStartup(t *testing.T) {
 				"TPM_CERT_RESOLVERS is required",
 			}, nil,
 		},
-	} {
+	}
+	for _, style := range []string{"basic", "form"} {
+		cases["username with a colon in "+style+" style"] = startupCase{
+			map[string]string{"TPM_LOCAL_AUTH": style, "TPM_AUTH_USERNAME": "ad:min", "TPM_AUTH_PASSWORD": "pw"},
+			[]string{`TPM_AUTH_USERNAME can't contain ":" (Basic style splits on it)`}, nil,
+		}
+	}
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			env := internalOnly(t.TempDir())
 			for k, v := range tc.env {
@@ -127,18 +126,16 @@ func withBasic(req *http.Request, user, pass string) *http.Request {
 func TestBasicLoginChallengesEveryPathWithoutTheRightCredentials(t *testing.T) {
 	a := newApp(t, basicLogin(t.TempDir()))
 	requests := map[string]func() *http.Request{
-		"list": func() *http.Request { return httptest.NewRequest("GET", "/", nil) },
-		"htmx status poll": func() *http.Request {
-			req := httptest.NewRequest("GET", "/proxy-hosts/status", nil)
-			req.Header.Set("HX-Request", "true")
-			return req
-		},
+		"list":             func() *http.Request { return httptest.NewRequest("GET", "/", nil) },
+		"htmx status poll": func() *http.Request { return htmxGet("/proxy-hosts/status") },
 		"POST": func() *http.Request {
 			req := httptest.NewRequest("POST", "/proxy-hosts", strings.NewReader(hostForm("app.example.com").Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			return req
 		},
 		"unknown path": func() *http.Request { return httptest.NewRequest("GET", "/no-such-page", nil) },
+		// Deny by default: Basic style has no sign-in page to skip to.
+		"sign-in page": func() *http.Request { return httptest.NewRequest("GET", "/login", nil) },
 	}
 	for name, req := range requests {
 		for creds, sign := range map[string]func(*http.Request) *http.Request{
@@ -175,10 +172,19 @@ func TestBasicLoginLeavesStaticFilesAndTraefikConfigOpen(t *testing.T) {
 	a := newApp(t, basicLogin(t.TempDir()))
 	assertContains(t, get(t, a, "/static/app.css"), "tailwindcss")
 	traefikConfig(t, a)
+	assertConfigHiddenFromRouters(t, a, "")
+}
 
+// assertConfigHiddenFromRouters checks GET /traefik/config for host is a 404
+// when it came through a Traefik router, whatever Local Login lets through.
+func assertConfigHiddenFromRouters(t *testing.T, h http.Handler, host string) {
+	t.Helper()
 	req := httptest.NewRequest("GET", "/traefik/config", nil)
+	if host != "" {
+		req.Host = host
+	}
 	req.Header.Set("X-Forwarded-For", "203.0.113.7")
-	if rec := do(t, a, req); rec.Code != http.StatusNotFound {
+	if rec := do(t, h, req); rec.Code != http.StatusNotFound {
 		t.Fatalf("GET /traefik/config through a router = %d, want 404", rec.Code)
 	}
 }

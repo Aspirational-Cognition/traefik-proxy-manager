@@ -27,16 +27,15 @@ const (
 // default: every path needs login except the skip list, so unknown and
 // future paths are challenged rather than 404'd.
 type login struct {
-	style, username string
-	proxyHost       string
-	user, pass      [sha256.Size]byte // digests, so comparing them leaks no lengths
-	now             func() time.Time
-	mu              sync.Mutex
-	key             []byte // signs Form sessions; kept only in memory, so a restart signs everyone out
+	loginSettings
+	user, pass [sha256.Size]byte // digests, so comparing them leaks no lengths
+	now        func() time.Time
+	mu         sync.Mutex
+	key        []byte // signs Form sessions; kept only in memory, so a restart signs everyone out
 }
 
 func newLogin(s loginSettings, now func() time.Time) *login {
-	return &login{style: s.style, username: s.username, proxyHost: s.proxyHost, user: sha256.Sum256([]byte(s.username)), pass: sha256.Sum256([]byte(s.password)), now: now, key: newKey()}
+	return &login{loginSettings: s, user: sha256.Sum256([]byte(s.username)), pass: sha256.Sum256([]byte(s.password)), now: now, key: newKey()}
 }
 
 // newKey is a fresh session key, 32 bytes from crypto/rand.
@@ -73,12 +72,12 @@ func (l *login) wrap(next http.Handler) http.Handler {
 		skip.Handle("POST /logout", next)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case onProxyLoginHost(r, l.proxyHost) && (r.URL.Path == "/login" || r.URL.Path == "/logout"):
-			// Nothing to sign in or out of here; a stray bookmark lands on the list.
-			http.Redirect(w, r, "/", http.StatusSeeOther)
-			return
-		case onProxyLoginHost(r, l.proxyHost):
+		if l.onProxyLoginHost(r) {
+			if r.URL.Path == "/login" || r.URL.Path == "/logout" {
+				// Nothing to sign in or out of here; a stray bookmark lands on the list.
+				http.Redirect(w, r, "/", http.StatusSeeOther)
+				return
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -106,12 +105,18 @@ func (l *login) wrap(next http.Handler) http.Handler {
 // onProxyLoginHost reports whether r is for the Proxy Login hostname, which
 // Traefik's forwardAuth has already let through. Only Host decides, ignoring
 // case and port, never X-Forwarded-Host or an identity header (ADR 0001).
-func onProxyLoginHost(r *http.Request, host string) bool {
+func (s loginSettings) onProxyLoginHost(r *http.Request) bool {
 	h, _, err := net.SplitHostPort(r.Host)
 	if err != nil {
 		h = r.Host
 	}
-	return host != "" && strings.EqualFold(h, host)
+	return s.proxyHost != "" && strings.EqualFold(h, s.proxyHost)
+}
+
+// signOut reports whether the page for r offers Sign out: only a Form
+// session has one to end, and the Proxy Login hostname has no session.
+func (s loginSettings) signOut(r *http.Request) bool {
+	return s.style == "form" && !s.onProxyLoginHost(r)
 }
 
 // routes adds Form style's sign-in page and Sign out to mux; Basic style
