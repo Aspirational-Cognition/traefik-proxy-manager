@@ -10,7 +10,7 @@
 <script src="/static/app.js" defer></script>
 </head>
 <body class="min-h-screen bg-canvas text-fg">
-{{template "appbar"}}
+{{template "appbar" .SignOut}}
 <div class="max-w-6xl mx-auto p-6 pb-24">
   {{template "banners" .}}
   {{template "hosts" .}}
@@ -19,11 +19,12 @@
 </body>
 </html>
 
-{{/* The app bar on every page; its right side is left for Sign out. */}}
+{{/* The app bar on every page; given true, with Sign out on its right. */}}
 {{define "appbar"}}
 <header class="border-b border-line bg-surface">
   <div class="max-w-6xl mx-auto px-6 h-12 flex items-center justify-between">
     <div><span class="font-semibold text-fg-strong">tpm</span> <span class="text-fg-muted text-sm">Traefik Proxy Manager</span></div>
+    {{if .}}<form method="post" action="/logout"><button class="text-sm border border-line-strong rounded px-3 py-1 text-fg-soft hover:text-fg-strong hover:border-fg-muted">Sign out</button></form>{{end}}
   </div>
 </header>
 {{end}}

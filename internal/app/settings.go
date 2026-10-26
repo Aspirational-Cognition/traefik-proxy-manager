@@ -31,7 +31,7 @@ type settings struct {
 
 // loginSettings is how tpm's own UI is signed in to.
 type loginSettings struct {
-	style              string // Local Login's style: "basic", or "" for none by tpm
+	style              string // Local Login's style: "basic", "form", or "" for none by tpm
 	username, password string
 }
 
@@ -117,11 +117,7 @@ func parseLogin(getenv func(string) string, errs []error) (loginSettings, []erro
 		}
 		return l, errs
 	}
-	switch l.style {
-	case "basic":
-	case "form": // until Form-style Local Login lands, so tpm never runs open believing it has a login
-		errs = append(errs, errors.New(`TPM_LOCAL_AUTH "form" isn't available yet; use basic`))
-	default:
+	if l.style != "basic" && l.style != "form" {
 		errs = append(errs, fmt.Errorf("TPM_LOCAL_AUTH %q isn't basic or form", l.style))
 	}
 	if l.username == "" {

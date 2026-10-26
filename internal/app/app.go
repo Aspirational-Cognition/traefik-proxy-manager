@@ -21,7 +21,7 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := newLogin(s.login)
+	l := newLogin(s.login, now)
 	log.Print(l)
 	st, err := openStore(s.dataDir, now)
 	if err != nil {
@@ -42,6 +42,7 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 	mux.HandleFunc("POST /proxy-hosts/{id}/enable", w.setEnabled(true))
 	mux.HandleFunc("POST /proxy-hosts/{id}/disable", w.setEnabled(false))
 	mux.Handle("GET /static/", staticFiles)
+	l.routes(mux)
 	mux.HandleFunc("GET /traefik/config", func(rw http.ResponseWriter, r *http.Request) {
 		// Traefik (v3.1.3+) sets these on every request through a router; its
 		// own HTTP-provider poll carries none, so only the poll sees Forward Targets.
