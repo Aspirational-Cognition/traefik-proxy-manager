@@ -143,7 +143,7 @@ saying what's wrong, if any are.
 | `TPM_PORT` | no | `8080` | Port tpm listens on inside the container. If you change it, change the `providers.http` endpoint and the `loadbalancer.server.port` label to match. |
 | `TPM_DATA_DIR` | no | `/data` | Where tpm keeps `proxy-hosts.json`. |
 | `TPM_RESPONSE_HEADER_TIMEOUT` | no | none | How long Proxy Hosts with "Skip certificate check" wait for the Forward Target's response headers before Traefik returns a 504, e.g. `30s`. Traefik doesn't apply its static `serversTransport.forwardingTimeouts.responseHeaderTimeout` to them, so if you set that, set this to the same value. |
-| `TPM_LOCAL_AUTH` | no | none | Turns on Local Login: tpm itself asks for `TPM_AUTH_USERNAME` and `TPM_AUTH_PASSWORD` on every page. Exactly `basic` (the browser's own prompt); anything else refuses to start. Unset, tpm asks for nothing, and any protection is your Access rule on tpm's router. |
+| `TPM_LOCAL_AUTH` | no | none | Turns on Local Login: tpm itself asks for `TPM_AUTH_USERNAME` and `TPM_AUTH_PASSWORD` on every page. Exactly `basic` (the browser's own prompt) or `form` (a tpm sign-in page; a session lasts 7 days, and Sign out or a tpm restart ends every session); anything else refuses to start. Unset, tpm asks for nothing, and any protection is your Access rule on tpm's router. |
 | `TPM_AUTH_USERNAME` | with `TPM_LOCAL_AUTH` | | The Local Login username, taken exactly as set (no trimming). Can't contain `:`. Setting it without `TPM_LOCAL_AUTH` refuses to start. |
 | `TPM_AUTH_PASSWORD` | with `TPM_LOCAL_AUTH` | | The Local Login password, taken exactly as set (no trimming, no strength rule). Setting it without `TPM_LOCAL_AUTH` refuses to start. |
 

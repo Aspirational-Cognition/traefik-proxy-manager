@@ -22,9 +22,9 @@ func TestLocalLoginSettingsFailStartup(t *testing.T) {
 			map[string]string{"TPM_LOCAL_AUTH": "Basic", "TPM_AUTH_USERNAME": "admin", "TPM_AUTH_PASSWORD": "pw"},
 			[]string{`TPM_LOCAL_AUTH "Basic" isn't basic or form`}, nil,
 		},
-		"form isn't available yet": {
-			map[string]string{"TPM_LOCAL_AUTH": "form", "TPM_AUTH_USERNAME": "admin", "TPM_AUTH_PASSWORD": "pw"},
-			[]string{`TPM_LOCAL_AUTH "form"`}, nil,
+		"username with a colon in form style": {
+			map[string]string{"TPM_LOCAL_AUTH": "form", "TPM_AUTH_USERNAME": "ad:min", "TPM_AUTH_PASSWORD": "pw"},
+			[]string{`TPM_AUTH_USERNAME can't contain ":" (Basic style splits on it)`}, nil,
 		},
 		"no credentials": {
 			map[string]string{"TPM_LOCAL_AUTH": "basic"},
@@ -188,6 +188,11 @@ func TestStartupLogNamesTheLoginSetup(t *testing.T) {
 	out.Reset()
 	newApp(t, basicLogin(t.TempDir()))
 	assertContains(t, out.String(), `login: Local Login, basic style, user "admin"`+"\n")
+	assertNotContains(t, out.String(), "s3cret")
+
+	out.Reset()
+	newApp(t, formLogin(t.TempDir()))
+	assertContains(t, out.String(), `login: Local Login, form style, user "admin"`+"\n")
 	assertNotContains(t, out.String(), "s3cret")
 }
 
