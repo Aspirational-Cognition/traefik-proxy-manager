@@ -322,6 +322,17 @@ func TestListPageUsesEmbeddedAssetsOnly(t *testing.T) {
 	assertContains(t, get(t, a, "/static/app.js"), "data-access")
 }
 
+func TestListPageHasAppBarWithoutSignOut(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+
+	page := get(t, a, "/")
+
+	assertContains(t, page, "<header", ">tpm<", "Traefik Proxy Manager")
+	if strings.Contains(page, "Sign out") {
+		t.Errorf("app bar offers Sign out without a Form session:\n%s", page)
+	}
+}
+
 func TestAddModalOffersDomainsTargetAndResolver(t *testing.T) {
 	a := newApp(t, internalOnly(t.TempDir()))
 
@@ -461,6 +472,23 @@ func TestConfigIs503ForAStoredHostWithUnknownExposure(t *testing.T) {
 	if rec := do(t, a, httptest.NewRequest("GET", "/traefik/config", nil)); rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("GET /traefik/config = %d, want 503: %s", rec.Code, rec.Body)
 	}
+}
+
+func TestConfigIs404ThroughAnyTraefikRouter(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Port", "X-Forwarded-Server", "X-Real-Ip"} {
+		req := httptest.NewRequest("GET", "/traefik/config", nil)
+		req.Header.Set(h, "x")
+		if rec := do(t, a, req); rec.Code != http.StatusNotFound {
+			t.Errorf("GET /traefik/config with %s = %d, want 404: %s", h, rec.Code, rec.Body)
+		}
+		req = httptest.NewRequest("GET", "/", nil)
+		req.Header.Set(h, "x")
+		if rec := do(t, a, req); rec.Code != 200 {
+			t.Errorf("GET / with %s = %d, want 200", h, rec.Code)
+		}
+	}
+	traefikConfig(t, a) // Traefik's own poll carries none of them
 }
 
 func TestStylesheetIsEmbedded(t *testing.T) {
