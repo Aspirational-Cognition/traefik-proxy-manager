@@ -322,6 +322,17 @@ func TestListPageUsesEmbeddedAssetsOnly(t *testing.T) {
 	assertContains(t, get(t, a, "/static/app.js"), "data-access")
 }
 
+func TestListPageHasAppBarWithoutSignOut(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+
+	page := get(t, a, "/")
+
+	assertContains(t, page, "<header", ">tpm<", "Traefik Proxy Manager")
+	if strings.Contains(page, "Sign out") {
+		t.Errorf("app bar offers Sign out without a Form session:\n%s", page)
+	}
+}
+
 func TestAddModalOffersDomainsTargetAndResolver(t *testing.T) {
 	a := newApp(t, internalOnly(t.TempDir()))
 
