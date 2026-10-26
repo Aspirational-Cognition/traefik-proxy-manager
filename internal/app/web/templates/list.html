@@ -42,8 +42,8 @@
       <tbody>
       {{range .Hosts}}
         <tr class="border-t border-line hover:bg-raised/50{{if not .Enabled}} opacity-50{{end}}">
-          <td class="p-3">{{range .Domains}}<span class="inline-block bg-raised text-fg rounded px-2 py-0.5 text-xs mr-1 mb-1">{{.}}</span>{{end}}</td>
-          <td class="p-3 font-mono text-xs text-fg-soft">{{.Forward.URL}}{{if .SkipCertCheck}} <span title="Certificate check skipped" class="text-warn">⚠︎</span>{{end}}</td>
+          <td class="p-3">{{$scheme := "http"}}{{if .ForceSSL}}{{$scheme = "https"}}{{end}}{{range .Domains}}<a href="{{$scheme}}://{{.}}" target="_blank" rel="noopener" class="inline-block bg-raised text-fg rounded px-2 py-0.5 text-xs mr-1 mb-1 hover:underline">{{.}}</a>{{end}}</td>
+          <td class="p-3 font-mono text-xs text-fg-soft"><a href="{{.Forward.URL}}" target="_blank" rel="noopener" class="hover:underline">{{.Forward.URL}}</a>{{if .SkipCertCheck}} <span title="Certificate check skipped" class="text-warn">⚠︎</span>{{end}}</td>
           <td class="p-3">{{template "exposure-badge" .Exposure}}</td>
           <td class="p-3 text-xs text-fg-soft">{{if .ForceSSL}}🔒 Force SSL{{else}}HTTP allowed{{end}}<div class="text-fg-muted">{{.CertResolver}}</div></td>
           <td class="p-3">{{range .AccessRules}}<span class="inline-block bg-raised text-fg-soft rounded px-2 py-0.5 text-xs mr-1 mb-1">{{.}}</span>{{end}}</td>
