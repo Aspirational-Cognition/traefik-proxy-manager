@@ -26,6 +26,13 @@ type settings struct {
 	port          int
 	dataDir       string
 	timeouts      *forwardingTimeouts // for the skip-cert-check transport, which doesn't inherit Traefik's static ones; nil if unset
+	login         loginSettings
+}
+
+// loginSettings is how tpm's own UI is signed in to.
+type loginSettings struct {
+	style              string // Local Login's style: "basic", or "" for none by tpm
+	username, password string
 }
 
 // parseSettings reads and validates the TPM_* env vars, reporting every
@@ -87,7 +94,46 @@ func parseSettings(getenv func(string) string) (settings, error) {
 		}
 		s.timeouts = &forwardingTimeouts{v}
 	}
+	s.login, errs = parseLogin(getenv, errs)
 	return s, errors.Join(errs...)
+}
+
+// parseLogin reads the Local Login settings, appending their problems to errs.
+// Credentials are taken byte for byte: no trimming, no strength rule.
+func parseLogin(getenv func(string) string, errs []error) (loginSettings, []error) {
+	l := loginSettings{getenv("TPM_LOCAL_AUTH"), getenv("TPM_AUTH_USERNAME"), getenv("TPM_AUTH_PASSWORD")}
+	if l.style == "" {
+		var set []string
+		for _, k := range []string{"TPM_AUTH_USERNAME", "TPM_AUTH_PASSWORD"} {
+			if getenv(k) != "" {
+				set = append(set, k)
+			}
+		}
+		switch len(set) {
+		case 1:
+			errs = append(errs, fmt.Errorf("%s only applies with Local Login; set TPM_LOCAL_AUTH to basic or form, or remove it", set[0]))
+		case 2:
+			errs = append(errs, errors.New("TPM_AUTH_USERNAME and TPM_AUTH_PASSWORD only apply with Local Login; set TPM_LOCAL_AUTH to basic or form, or remove them"))
+		}
+		return l, errs
+	}
+	switch l.style {
+	case "basic":
+	case "form": // until Form-style Local Login lands, so tpm never runs open believing it has a login
+		errs = append(errs, errors.New(`TPM_LOCAL_AUTH "form" isn't available yet; use basic`))
+	default:
+		errs = append(errs, fmt.Errorf("TPM_LOCAL_AUTH %q isn't basic or form", l.style))
+	}
+	if l.username == "" {
+		errs = append(errs, errors.New("TPM_AUTH_USERNAME is required when TPM_LOCAL_AUTH is set"))
+	}
+	if strings.Contains(l.username, ":") {
+		errs = append(errs, errors.New(`TPM_AUTH_USERNAME can't contain ":" (Basic style splits on it)`))
+	}
+	if l.password == "" {
+		errs = append(errs, errors.New("TPM_AUTH_PASSWORD is required when TPM_LOCAL_AUTH is set"))
+	}
+	return l, errs
 }
 
 // list splits a comma-separated setting, skipping blanks.

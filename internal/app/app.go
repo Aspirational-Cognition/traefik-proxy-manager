@@ -21,6 +21,8 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	l := newLogin(s.login)
+	log.Print(l)
 	st, err := openStore(s.dataDir, now)
 	if err != nil {
 		return nil, err
@@ -60,5 +62,5 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 		rw.Write(b)
 	})
 	// Refuse cross-origin form posts (CSRF); Traefik's GET polls are unaffected.
-	return &App{Handler: http.NewCrossOriginProtection().Handler(mux), Port: s.port}, nil
+	return &App{Handler: http.NewCrossOriginProtection().Handler(l.wrap(mux)), Port: s.port}, nil
 }
