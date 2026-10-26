@@ -51,6 +51,26 @@ func TestLocalLoginSettingsFailStartup(t *testing.T) {
 			map[string]string{"TPM_LOCAL_AUTH": "basic", "TPM_AUTH_USERNAME": "ad:min", "TPM_AUTH_PASSWORD": "pw"},
 			[]string{`TPM_AUTH_USERNAME can't contain ":" (Basic style splits on it)`}, nil,
 		},
+		"proxy login host that isn't bare": {
+			map[string]string{"TPM_LOCAL_AUTH": "form", "TPM_AUTH_USERNAME": "admin", "TPM_AUTH_PASSWORD": "pw", "TPM_PROXY_LOGIN_HOST": "https://tpm.example.com"},
+			[]string{`TPM_PROXY_LOGIN_HOST "https://tpm.example.com" isn't a bare hostname, e.g. tpm.example.com`}, nil,
+		},
+		"proxy login host with a port": {
+			map[string]string{"TPM_LOCAL_AUTH": "form", "TPM_AUTH_USERNAME": "admin", "TPM_AUTH_PASSWORD": "pw", "TPM_PROXY_LOGIN_HOST": "tpm.example.com:443"},
+			[]string{`TPM_PROXY_LOGIN_HOST "tpm.example.com:443" isn't a bare hostname, e.g. tpm.example.com`}, nil,
+		},
+		"proxy login host with a user": {
+			map[string]string{"TPM_LOCAL_AUTH": "form", "TPM_AUTH_USERNAME": "admin", "TPM_AUTH_PASSWORD": "pw", "TPM_PROXY_LOGIN_HOST": "admin@tpm.example.com"},
+			[]string{`TPM_PROXY_LOGIN_HOST "admin@tpm.example.com" isn't a bare hostname, e.g. tpm.example.com`}, nil,
+		},
+		"proxy login host with whitespace": {
+			map[string]string{"TPM_LOCAL_AUTH": "form", "TPM_AUTH_USERNAME": "admin", "TPM_AUTH_PASSWORD": "pw", "TPM_PROXY_LOGIN_HOST": "tpm.example.com "},
+			[]string{`TPM_PROXY_LOGIN_HOST "tpm.example.com " isn't a bare hostname, e.g. tpm.example.com`}, nil,
+		},
+		"proxy login host without local login": {
+			map[string]string{"TPM_PROXY_LOGIN_HOST": "tpm.example.com"},
+			[]string{"TPM_PROXY_LOGIN_HOST only applies with Local Login as Fallback; set TPM_LOCAL_AUTH, or remove it (Proxy Login only needs no tpm setting)"}, nil,
+		},
 		"several at once": {
 			map[string]string{"TPM_LOCAL_AUTH": "Basic", "TPM_AUTH_USERNAME": "ad:min", "TPM_CERT_RESOLVERS": ""},
 			[]string{
@@ -194,6 +214,12 @@ func TestStartupLogNamesTheLoginSetup(t *testing.T) {
 	newApp(t, formLogin(t.TempDir()))
 	assertContains(t, out.String(), `login: Local Login, form style, user "admin"`+"\n")
 	assertNotContains(t, out.String(), "s3cret")
+
+	out.Reset()
+	env := formLogin(t.TempDir())
+	env["TPM_PROXY_LOGIN_HOST"] = "tpm.example.com"
+	newApp(t, env)
+	assertContains(t, out.String(), `login: Local Login, form style, user "admin"; skipped on Proxy Login host tpm.example.com`+"\n")
 }
 
 func TestWrongBasicAttemptIsLogged(t *testing.T) {

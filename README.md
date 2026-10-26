@@ -146,6 +146,7 @@ saying what's wrong, if any are.
 | `TPM_LOCAL_AUTH` | no | none | Turns on Local Login: tpm itself asks for `TPM_AUTH_USERNAME` and `TPM_AUTH_PASSWORD` on every page. Exactly `basic` (the browser's own prompt) or `form` (a tpm sign-in page; a session lasts 7 days, and Sign out or a tpm restart ends every session); anything else refuses to start. Unset, tpm asks for nothing, and any protection is your Access rule on tpm's router. |
 | `TPM_AUTH_USERNAME` | with `TPM_LOCAL_AUTH` | | The Local Login username, taken exactly as set (no trimming). Can't contain `:`. Setting it without `TPM_LOCAL_AUTH` refuses to start. |
 | `TPM_AUTH_PASSWORD` | with `TPM_LOCAL_AUTH` | | The Local Login password, taken exactly as set (no trimming, no strength rule). Setting it without `TPM_LOCAL_AUTH` refuses to start. |
+| `TPM_PROXY_LOGIN_HOST` | no | none | For Proxy Login with Local Login as Fallback: the one hostname of tpm's Proxy Login router, e.g. `tpm.example.com`, which must match that router's `Host` rule. Requests for it skip Local Login, since Traefik's forwardAuth has already let them through; every other hostname (the Fallback's, a bare IP, a catch-all) is asked for it. Matched against the request's `Host` only, ignoring case and port, never `X-Forwarded-Host`. A bare hostname only: no scheme, port, path, `@` or whitespace. Setting it without `TPM_LOCAL_AUTH` refuses to start; Proxy Login alone needs no tpm setting. |
 
 ### Exposure sides
 
