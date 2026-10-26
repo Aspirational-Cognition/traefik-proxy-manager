@@ -155,6 +155,12 @@ func TestBasicLoginLeavesStaticFilesAndTraefikConfigOpen(t *testing.T) {
 	a := newApp(t, basicLogin(t.TempDir()))
 	assertContains(t, get(t, a, "/static/app.css"), "tailwindcss")
 	traefikConfig(t, a)
+
+	req := httptest.NewRequest("GET", "/traefik/config", nil)
+	req.Header.Set("X-Forwarded-For", "203.0.113.7")
+	if rec := do(t, a, req); rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /traefik/config through a router = %d, want 404", rec.Code)
+	}
 }
 
 func TestSkipListCantBeReachedAround(t *testing.T) {
