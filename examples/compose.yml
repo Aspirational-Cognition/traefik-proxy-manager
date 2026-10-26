@@ -1,12 +1,16 @@
-# The tpm service, to copy into the compose project that runs Traefik.
-# Replace the example network, entrypoints, Certificate Resolvers, domain
-# and Access rule with your own; see the README for every TPM_* setting.
+# The tpm service, to copy into the compose project that runs Traefik. It
+# shows Proxy Login with Local Login as Fallback; the README's Signing in
+# section says what to delete for the other setups. Replace the example
+# entrypoints, Certificate Resolvers, domains and Access rule with your own;
+# see the README for every TPM_* setting.
 services:
   tpm:
     image: registry.example.com:443/home/devops/traefik-proxy-manager:latest
     restart: unless-stopped
     networks:
-      - proxy # Traefik's network: Traefik polls tpm, and tpm reads Traefik's API
+      # Shared only with Traefik: Traefik polls tpm, and tpm reads Traefik's
+      # API; nothing else may reach tpm's port.
+      - tpm
     volumes:
       - tpm-data:/data
     environment:
@@ -17,13 +21,22 @@ services:
       TPM_ENTRYPOINT_EXTERNAL_HTTPS: websecure
       TPM_CERT_RESOLVERS: le-dns,le-http
       TPM_DEFAULT_MIDDLEWARES_EXTERNAL: authentik@docker
-    # tpm's own UI, internal only and behind Authentik.
+      TPM_LOCAL_AUTH: form
+      TPM_AUTH_USERNAME: admin
+      TPM_AUTH_PASSWORD: ${TPM_AUTH_PASSWORD} # from .env, keep it out of this file
+      TPM_PROXY_LOGIN_HOST: tpm.example.com   # must match the tpm router's Host
     labels:
       - traefik.enable=true
+      - traefik.docker.network=tpm
+      # Proxy Login: tpm's usual address, behind Authentik.
       - traefik.http.routers.tpm.rule=Host(`tpm.example.com`)
       - traefik.http.routers.tpm.entrypoints=websecure-int
       - traefik.http.routers.tpm.tls.certresolver=le-dns
       - traefik.http.routers.tpm.middlewares=authentik@docker
+      # Fallback: Local Login for when Authentik is down. Internal entrypoints only.
+      - traefik.http.routers.tpm-fallback.rule=Host(`tpm-fallback.example.com`)
+      - traefik.http.routers.tpm-fallback.entrypoints=websecure-int
+      - traefik.http.routers.tpm-fallback.tls.certresolver=le-dns
       - traefik.http.services.tpm.loadbalancer.server.port=8080
 
 # Merge these into your project's own top-level keys.
@@ -31,5 +44,5 @@ volumes:
   tpm-data:
 
 networks:
-  proxy:
-    external: true # or however your project already declares Traefik's network
+  tpm:
+    name: tpm # add tpm to your Traefik service's networks too

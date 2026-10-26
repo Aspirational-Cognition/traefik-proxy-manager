@@ -42,6 +42,7 @@ type listView struct {
 	Hosts   []hostRow
 	Banners []string
 	OOB     bool
+	SignOut bool // a Form session, which the app bar offers to end
 }
 
 // hostRow is one row of the list: the stored host, its live Status and its
@@ -95,7 +96,7 @@ type resolverOption struct {
 }
 
 func (w *web) list(rw http.ResponseWriter, r *http.Request) {
-	render(rw, http.StatusOK, "list.html", listView{Hosts: w.rows(), Banners: w.banners()})
+	render(rw, http.StatusOK, "list.html", listView{Hosts: w.rows(), Banners: w.banners(), SignOut: w.settings.login.signOut(r)})
 }
 
 // newForm opens a blank modal. Sides list Internal first, so a new host

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in · tpm</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="min-h-screen bg-canvas text-fg">
+{{template "appbar" false}}
+<main class="max-w-6xl mx-auto p-6">
+  <h1 class="text-2xl font-semibold mb-1">Sign in</h1>
+  <p class="text-sm text-fg-muted mb-6">This address uses tpm's own login: the username and password set in <code class="text-fg-soft">TPM_AUTH_USERNAME</code> and <code class="text-fg-soft">TPM_AUTH_PASSWORD</code>.</p>
+  <form method="post" action="/login" class="max-w-md space-y-4">
+    <div>
+      <label class="block text-sm text-fg-soft mb-1" for="username">Username</label>
+      <input id="username" name="username" value="{{.Username}}" autocomplete="username" {{if not .Wrong}}autofocus {{end}}class="w-full {{template "login-input" .}}">
+    </div>
+    <div>
+      <label class="block text-sm text-fg-soft mb-1" for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" {{if .Wrong}}autofocus {{end}}class="w-full {{template "login-input" .}}">
+      {{if .Wrong}}<p class="text-sm text-danger mt-1">Wrong username or password.</p>{{end}}
+    </div>
+    <button class="bg-accent hover:bg-accent-hover text-on-accent px-4 py-2 rounded">Sign in</button>
+  </form>
+</main>
+</body>
+</html>
+
+{{/* A sign-in field, outlined red after a wrong attempt. */}}
+{{define "login-input"}}bg-canvas border rounded px-3 py-2 text-fg-strong focus:outline-none focus:border-accent-hover {{if .Wrong}}border-danger{{else}}border-line-strong{{end}}{{end}}

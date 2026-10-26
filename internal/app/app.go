@@ -25,6 +25,8 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	l := newLogin(s.login, now)
+	log.Print(l)
 	polls := &pollLog{}
 	w := &web{settings: s, store: st, polls: polls, traefik: newTraefikAPI(s.traefikAPI, now), now: now}
 
@@ -40,7 +42,16 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 	mux.HandleFunc("POST /proxy-hosts/{id}/enable", w.setEnabled(true))
 	mux.HandleFunc("POST /proxy-hosts/{id}/disable", w.setEnabled(false))
 	mux.Handle("GET /static/", staticFiles)
+	l.routes(mux)
 	mux.HandleFunc("GET /traefik/config", func(rw http.ResponseWriter, r *http.Request) {
+		// Traefik (v3.1.3+) sets these on every request through a router; its
+		// own HTTP-provider poll carries none, so only the poll sees Forward Targets.
+		for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Port", "X-Forwarded-Server", "X-Real-Ip"} {
+			if _, ok := r.Header[h]; ok {
+				http.NotFound(rw, r)
+				return
+			}
+		}
 		// Anything short of the full snapshot is a 503, so Traefik keeps its
 		// last good config instead of dropping hosts.
 		at := now()
@@ -60,5 +71,5 @@ func New(getenv func(string) string, now func() time.Time) (*App, error) {
 		rw.Write(b)
 	})
 	// Refuse cross-origin form posts (CSRF); Traefik's GET polls are unaffected.
-	return &App{Handler: http.NewCrossOriginProtection().Handler(mux), Port: s.port}, nil
+	return &App{Handler: http.NewCrossOriginProtection().Handler(l.wrap(mux)), Port: s.port}, nil
 }

@@ -32,6 +32,18 @@ _Avoid_: SSL certificate, cert
 A request-handling rule already defined in Traefik (e.g. Authentik forward-auth) that a Proxy Host can opt into. tpm selects existing ones; it never defines them. Users see each one as an **Access rule**, picked in the form's Access section.
 _Avoid_: Access list, plugin
 
+**Local Login**:
+Signing in to tpm's own UI with the single username and password tpm is configured with, checked by tpm itself. Comes in one of two styles: **Basic** (the browser's own prompt) or **Form** (a tpm sign-in page).
+_Avoid_: Basic auth (as a general term), local auth, password login
+
+**Proxy Login**:
+Signing in to tpm's own UI through an identity provider (Authentik, Authelia, Auth0 via oauth2-proxy, …) that Traefik consults before the request reaches tpm.
+_Avoid_: SSO, forward auth (in user-facing text), OIDC
+
+**Fallback**:
+Local Login used as the way in to tpm when Proxy Login is configured but unavailable, e.g. the identity provider is down or the internet link is. Reached at its own address rather than tpm's usual one.
+_Avoid_: Break-glass, backup login
+
 **Domain Clash**:
 A domain on an enabled Proxy Host that another enabled Proxy Host, or a Label Route, also answers on a shared entrypoint (the same Exposure side). tpm warns but never blocks.
 _Avoid_: Conflict, duplicate, collision

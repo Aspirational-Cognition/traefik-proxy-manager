@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // side is one Exposure side the install configures: an http + https
@@ -26,6 +27,14 @@ type settings struct {
 	port          int
 	dataDir       string
 	timeouts      *forwardingTimeouts // for the skip-cert-check transport, which doesn't inherit Traefik's static ones; nil if unset
+	login         loginSettings
+}
+
+// loginSettings is how tpm's own UI is signed in to.
+type loginSettings struct {
+	style              string // Local Login's style: "basic", "form", or "" for none by tpm
+	username, password string
+	proxyHost          string // the one Proxy Login hostname, which skips Local Login; "" for none
 }
 
 // parseSettings reads and validates the TPM_* env vars, reporting every
@@ -87,7 +96,46 @@ func parseSettings(getenv func(string) string) (settings, error) {
 		}
 		s.timeouts = &forwardingTimeouts{v}
 	}
-	return s, errors.Join(errs...)
+	s.login, err = parseLogin(getenv)
+	return s, errors.Join(append(errs, err)...)
+}
+
+// parseLogin reads and validates the Local Login settings. Credentials are
+// taken byte for byte: no trimming, no strength rule.
+func parseLogin(getenv func(string) string) (loginSettings, error) {
+	l := loginSettings{getenv("TPM_LOCAL_AUTH"), getenv("TPM_AUTH_USERNAME"), getenv("TPM_AUTH_PASSWORD"), getenv("TPM_PROXY_LOGIN_HOST")}
+	var errs []error
+	if strings.ContainsAny(l.proxyHost, "/:@") || strings.ContainsFunc(l.proxyHost, unicode.IsSpace) {
+		errs = append(errs, fmt.Errorf("TPM_PROXY_LOGIN_HOST %q isn't a bare hostname, e.g. tpm.example.com", l.proxyHost))
+	}
+	if l.style == "" {
+		if l.proxyHost != "" {
+			errs = append(errs, errors.New("TPM_PROXY_LOGIN_HOST only applies with Local Login as Fallback; set TPM_LOCAL_AUTH, or remove it (Proxy Login only needs no tpm setting)"))
+		}
+		const unused = "%s only applies with Local Login; set TPM_LOCAL_AUTH to basic or form, or remove it"
+		switch {
+		case l.username != "" && l.password != "":
+			errs = append(errs, errors.New("TPM_AUTH_USERNAME and TPM_AUTH_PASSWORD only apply with Local Login; set TPM_LOCAL_AUTH to basic or form, or remove them"))
+		case l.username != "":
+			errs = append(errs, fmt.Errorf(unused, "TPM_AUTH_USERNAME"))
+		case l.password != "":
+			errs = append(errs, fmt.Errorf(unused, "TPM_AUTH_PASSWORD"))
+		}
+		return l, errors.Join(errs...)
+	}
+	if l.style != "basic" && l.style != "form" {
+		errs = append(errs, fmt.Errorf("TPM_LOCAL_AUTH %q isn't basic or form", l.style))
+	}
+	if l.username == "" {
+		errs = append(errs, errors.New("TPM_AUTH_USERNAME is required when TPM_LOCAL_AUTH is set"))
+	}
+	if strings.Contains(l.username, ":") {
+		errs = append(errs, errors.New(`TPM_AUTH_USERNAME can't contain ":" (Basic style splits on it)`))
+	}
+	if l.password == "" {
+		errs = append(errs, errors.New("TPM_AUTH_PASSWORD is required when TPM_LOCAL_AUTH is set"))
+	}
+	return l, errors.Join(errs...)
 }
 
 // list splits a comma-separated setting, skipping blanks.
