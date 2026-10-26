@@ -463,6 +463,23 @@ func TestConfigIs503ForAStoredHostWithUnknownExposure(t *testing.T) {
 	}
 }
 
+func TestConfigIs404ThroughAnyTraefikRouter(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Port", "X-Forwarded-Server", "X-Real-Ip"} {
+		req := httptest.NewRequest("GET", "/traefik/config", nil)
+		req.Header.Set(h, "x")
+		if rec := do(t, a, req); rec.Code != http.StatusNotFound {
+			t.Errorf("GET /traefik/config with %s = %d, want 404: %s", h, rec.Code, rec.Body)
+		}
+		req = httptest.NewRequest("GET", "/", nil)
+		req.Header.Set(h, "x")
+		if rec := do(t, a, req); rec.Code != 200 {
+			t.Errorf("GET / with %s = %d, want 200", h, rec.Code)
+		}
+	}
+	traefikConfig(t, a) // Traefik's own poll carries none of them
+}
+
 func TestStylesheetIsEmbedded(t *testing.T) {
 	a := newApp(t, internalOnly(t.TempDir()))
 	assertContains(t, get(t, a, "/static/app.css"), "tailwindcss")
