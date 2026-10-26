@@ -96,7 +96,7 @@ type resolverOption struct {
 }
 
 func (w *web) list(rw http.ResponseWriter, r *http.Request) {
-	render(rw, http.StatusOK, "list.html", listView{Hosts: w.rows(), Banners: w.banners(), SignOut: w.settings.login.style == "form" && !onProxyLoginHost(r, w.settings.login.proxyHost)})
+	render(rw, http.StatusOK, "list.html", listView{Hosts: w.rows(), Banners: w.banners(), SignOut: w.settings.login.signOut(r)})
 }
 
 // newForm opens a blank modal. Sides list Internal first, so a new host

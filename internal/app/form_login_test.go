@@ -51,6 +51,7 @@ func TestFormLoginLeavesStaticFilesAndTraefikConfigOpen(t *testing.T) {
 	a := newApp(t, formLogin(t.TempDir()))
 	assertContains(t, get(t, a, "/static/app.css"), "tailwindcss")
 	traefikConfig(t, a)
+	assertConfigHiddenFromRouters(t, a, "")
 }
 
 func TestSignInPage(t *testing.T) {
@@ -183,7 +184,8 @@ func TestSignOutEndsTheSession(t *testing.T) {
 
 func TestSessionEndsSevenDaysAfterSignIn(t *testing.T) {
 	now := t0
-	a, err := app.New(func(k string) string { return formLogin(t.TempDir())[k] }, func() time.Time { return now })
+	env := formLogin(t.TempDir())
+	a, err := app.New(func(k string) string { return env[k] }, func() time.Time { return now })
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
