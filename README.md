@@ -84,6 +84,17 @@ providers:
 Use these values as they are. Change the host or port only if your service isn't named `tpm` or you set `TPM_PORT`.
 Traefik reads its static config only at startup, so restart Traefik after adding this.
 
+`/traefik/config` answers only Traefik's own poll: it lists every Proxy Host's Forward Target, so it's a 404 to any
+request that came through a Traefik router, including `curl https://tpm.example.com/traefik/config`. The endpoint must
+stay `http://tpm:8080/…`. tpm tells the two apart by the `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Port`,
+`X-Forwarded-Server` and `X-Real-Ip` headers Traefik adds to every routed request, so a headers Middleware blanking
+them, or a TCP router to tpm, opens it up. An `HTTP_PROXY` or `providers.http.headers` on Traefik that adds one of
+them makes the poll 404, and Traefik keeps serving its last config. To view the config yourself:
+
+```sh
+docker compose exec traefik wget -qO- http://tpm:8080/traefik/config
+```
+
 ### 3. Let tpm read Traefik's API
 
 tpm reads Traefik's API to show each Proxy Host's Status, list Access rules and warn about Domain Clashes. The simplest
