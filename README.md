@@ -223,7 +223,7 @@ saying what's wrong, if any are. For which login settings each setup needs, see 
 | `TPM_DEFAULT_MIDDLEWARES_EXTERNAL` | no | none | The same for External Proxy Hosts. Proxy Hosts exposed on Both get External's defaults. |
 | `TPM_PORT` | no | `8080` | Port tpm listens on inside the container. If you change it, change the `providers.http` endpoint and the `loadbalancer.server.port` label to match. |
 | `TPM_DATA_DIR` | no | `/data` | Where tpm keeps `proxy-hosts.json`. |
-| `TPM_RESPONSE_HEADER_TIMEOUT` | no | none | How long Proxy Hosts with "Skip certificate check" wait for the Forward Target's response headers before Traefik returns a 504, e.g. `30s`. Traefik doesn't apply its static `serversTransport.forwardingTimeouts.responseHeaderTimeout` to them, so if you set that, set this to the same value. |
+| `TPM_RESPONSE_HEADER_TIMEOUT` | no | none | How long Proxy Hosts with "Skip certificate check" and no [Response timeout](#response-timeout) of their own wait for the Forward Target's response headers before Traefik returns a 504: a positive duration, e.g. `30s`. Traefik doesn't apply its static `serversTransport.forwardingTimeouts.responseHeaderTimeout` to them, so if you set that, set this to the same value. |
 | `TPM_LOCAL_AUTH` | no | none | Turns on Local Login: tpm itself asks for `TPM_AUTH_USERNAME` and `TPM_AUTH_PASSWORD` on every page. Exactly `basic` (the browser's own prompt) or `form` (a tpm sign-in page; a session lasts 7 days, and Sign out or a tpm restart ends every session); anything else refuses to start. Unset, tpm asks for nothing, and any protection is your Access rule on tpm's router. |
 | `TPM_AUTH_USERNAME` | with `TPM_LOCAL_AUTH` | | The Local Login username, taken exactly as set (no trimming). Can't contain `:`. Setting it without `TPM_LOCAL_AUTH` refuses to start. |
 | `TPM_AUTH_PASSWORD` | with `TPM_LOCAL_AUTH` | | The Local Login password, taken exactly as set (no trimming, no strength rule). Setting it without `TPM_LOCAL_AUTH` refuses to start. |
@@ -245,6 +245,24 @@ in Traefik's logs.
 
 tpm warns about domains with no certificate yet only on Traefik v3.7 or newer, which can list certificates. Older
 Traefik v3 works fine without that warning.
+
+### Response timeout
+
+A Proxy Host's Response timeout is how long Traefik waits for the Forward Target's response headers before returning a
+504. Use it for a Forward Target that takes minutes to answer. The value is a duration such as `10m`, or `0` for no
+limit. A number with no unit, such as `30`, is refused.
+
+Left empty, the Proxy Host keeps the default: Traefik's static `responseHeaderTimeout`, or `TPM_RESPONSE_HEADER_TIMEOUT`
+with Skip certificate check.
+
+Two things still limit a Proxy Host with a Response timeout:
+
+- **The entrypoint's `writeTimeout` still applies.** A response can't outlast it, whatever the Response timeout says.
+  Past that deadline the client gets no 504: HTTP/2 is reset at the deadline, and HTTP/1.1 is dropped with no response
+  when the Forward Target finally answers.
+- **Traefik's static `serversTransport` settings don't apply.** The Proxy Host gets a transport of its own, which doesn't
+  use settings such as `rootCAs`. An https Forward Target that relies on them fails with a 500 unless Skip certificate
+  check is on.
 
 ## Backup and restore
 

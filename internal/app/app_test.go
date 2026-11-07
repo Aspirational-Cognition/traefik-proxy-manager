@@ -361,17 +361,20 @@ func TestSaveIsBlockedForHostsTraefikWouldReject(t *testing.T) {
 		change  func(f url.Values)
 		wantMsg string
 	}{
-		"no domain":         {func(f url.Values) { f.Set("domains", " , ") }, "Enter at least one domain name"},
-		"bad domain syntax": {func(f url.Values) { f.Set("domains", "ok.example.com, bad_domain!.com") }, "&#39;bad_domain!.com&#39; isn&#39;t a valid domain name"},
-		"backtick domain":   {func(f url.Values) { f.Set("domains", "a`.example.com") }, "isn&#39;t a valid domain name"},
-		"wildcard domain":   {func(f url.Values) { f.Set("domains", "*.example.com") }, "Wildcard domains like &#39;*.example.com&#39; aren&#39;t supported"},
-		"port too high":     {func(f url.Values) { f.Set("port", "65536") }, "Port must be a number from 1 to 65535"},
-		"port zero":         {func(f url.Values) { f.Set("port", "0") }, "Port must be a number from 1 to 65535"},
-		"port not a number": {func(f url.Values) { f.Set("port", "http") }, "Port must be a number from 1 to 65535"},
-		"no forward host":   {func(f url.Values) { f.Set("host", "") }, "Enter the hostname or IP address to send traffic to"},
-		"bad forward host":  {func(f url.Values) { f.Set("host", "10.0.0.1/admin") }, "Enter the hostname or IP address to send traffic to"},
-		"unknown scheme":    {func(f url.Values) { f.Set("scheme", "ftp") }, "Scheme must be http or https"},
-		"unlisted resolver": {func(f url.Values) { f.Set("certResolver", "staging") }, "Pick a Certificate Resolver from the list"},
+		"no domain":                       {func(f url.Values) { f.Set("domains", " , ") }, "Enter at least one domain name"},
+		"bad domain syntax":               {func(f url.Values) { f.Set("domains", "ok.example.com, bad_domain!.com") }, "&#39;bad_domain!.com&#39; isn&#39;t a valid domain name"},
+		"backtick domain":                 {func(f url.Values) { f.Set("domains", "a`.example.com") }, "isn&#39;t a valid domain name"},
+		"wildcard domain":                 {func(f url.Values) { f.Set("domains", "*.example.com") }, "Wildcard domains like &#39;*.example.com&#39; aren&#39;t supported"},
+		"port too high":                   {func(f url.Values) { f.Set("port", "65536") }, "Port must be a number from 1 to 65535"},
+		"port zero":                       {func(f url.Values) { f.Set("port", "0") }, "Port must be a number from 1 to 65535"},
+		"port not a number":               {func(f url.Values) { f.Set("port", "http") }, "Port must be a number from 1 to 65535"},
+		"no forward host":                 {func(f url.Values) { f.Set("host", "") }, "Enter the hostname or IP address to send traffic to"},
+		"bad forward host":                {func(f url.Values) { f.Set("host", "10.0.0.1/admin") }, "Enter the hostname or IP address to send traffic to"},
+		"unknown scheme":                  {func(f url.Values) { f.Set("scheme", "ftp") }, "Scheme must be http or https"},
+		"unlisted resolver":               {func(f url.Values) { f.Set("certResolver", "staging") }, "Pick a Certificate Resolver from the list"},
+		"negative response timeout":       {func(f url.Values) { f.Set("responseTimeout", "-5s") }, "Response timeout &#39;-5s&#39; isn&#39;t valid. Use a duration such as 10m, or 0 for no limit"},
+		"response timeout not a duration": {func(f url.Values) { f.Set("responseTimeout", "abc") }, "Response timeout &#39;abc&#39; isn&#39;t valid"},
+		"response timeout without a unit": {func(f url.Values) { f.Set("responseTimeout", "30") }, "Response timeout &#39;30&#39; isn&#39;t valid"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			a := newApp(t, internalOnly(t.TempDir()))
@@ -461,6 +464,16 @@ func TestRestoredHostsAreServedByTheirStoredSettings(t *testing.T) {
 	svc := traefikConfig(t, a)["http"].(map[string]any)["services"].(map[string]any)["host-3"]
 	if !strings.Contains(fmt.Sprint(svc), "https://10.0.0.3:5001") {
 		t.Fatalf("host-3 service = %v", svc)
+	}
+}
+
+func TestConfigIs503ForAStoredHostWithAnInvalidResponseTimeout(t *testing.T) {
+	dir := t.TempDir()
+	restoreHosts(t, dir, `{"id": 1, "enabled": true, "domains": ["a.example.com"], "forward": {"scheme": "http", "host": "10.0.0.1", "port": 80}, "exposure": "internal", "certResolver": "le-dns", "middlewares": [], "responseTimeout": "soon"}`)
+	a := newApp(t, internalOnly(dir))
+
+	if rec := do(t, a, httptest.NewRequest("GET", "/traefik/config", nil)); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("GET /traefik/config = %d, want 503: %s", rec.Code, rec.Body)
 	}
 }
 
@@ -944,6 +957,171 @@ func TestResponseHeaderTimeoutAloneAddsNoTransport(t *testing.T) {
 	a := newApp(t, env)
 
 	addHost(t, a, hostForm("nas.example.com"))
+
+	if got, ok := traefikConfig(t, a)["http"].(map[string]any)["serversTransports"]; ok {
+		t.Errorf("serversTransports = %v, want none", got)
+	}
+}
+
+func TestResponseTimeoutGivesAProxyHostItsOwnTransport(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	form := hostForm("ai.example.com")
+	form.Set("responseTimeout", "10m")
+
+	addHost(t, a, form)
+
+	snap := traefikConfig(t, a)["http"].(map[string]any)
+	want := map[string]any{"host-1": map[string]any{"insecureSkipVerify": false, "forwardingTimeouts": map[string]any{"responseHeaderTimeout": "10m"}}}
+	if !reflect.DeepEqual(snap["serversTransports"], want) {
+		t.Errorf("serversTransports = %v, want %v", snap["serversTransports"], want)
+	}
+	if got := snap["services"].(map[string]any)["host-1"].(map[string]any)["loadBalancer"].(map[string]any)["serversTransport"]; got != "host-1" {
+		t.Errorf("service host-1 serversTransport = %v, want host-1", got)
+	}
+}
+
+func TestResponseTimeoutReplacesTheSharedSkipCertCheckTransport(t *testing.T) {
+	env := internalOnly(t.TempDir())
+	env["TPM_RESPONSE_HEADER_TIMEOUT"] = "30s"
+	a := newApp(t, env)
+	form := hostForm("nas.example.com")
+	form.Set("scheme", "https")
+	form.Set("skipCertCheck", "on")
+	form.Set("responseTimeout", "10m")
+
+	addHost(t, a, form)
+
+	snap := traefikConfig(t, a)["http"].(map[string]any)
+	want := map[string]any{"host-1": map[string]any{"insecureSkipVerify": true, "forwardingTimeouts": map[string]any{"responseHeaderTimeout": "10m"}}}
+	if !reflect.DeepEqual(snap["serversTransports"], want) {
+		t.Errorf("serversTransports = %v, want %v", snap["serversTransports"], want)
+	}
+	if got := snap["services"].(map[string]any)["host-1"].(map[string]any)["loadBalancer"].(map[string]any)["serversTransport"]; got != "host-1" {
+		t.Errorf("service host-1 serversTransport = %v, want host-1", got)
+	}
+}
+
+func TestAnyZeroResponseTimeoutGenerates0s(t *testing.T) {
+	for _, value := range []string{"0", "0s", "0m", "-0s"} {
+		t.Run(value, func(t *testing.T) {
+			a := newApp(t, internalOnly(t.TempDir()))
+			form := hostForm("ai.example.com")
+			form.Set("responseTimeout", value)
+
+			addHost(t, a, form)
+
+			want := map[string]any{"host-1": map[string]any{"insecureSkipVerify": false, "forwardingTimeouts": map[string]any{"responseHeaderTimeout": "0s"}}}
+			if got := traefikConfig(t, a)["http"].(map[string]any)["serversTransports"]; !reflect.DeepEqual(got, want) {
+				t.Errorf("serversTransports = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestSavedResponseTimeoutShowsAgainWhenEditing(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	form := hostForm("ai.example.com")
+	form.Set("responseTimeout", "10m")
+	addHost(t, a, form)
+
+	modal, _ := editForm(t, a, 1)
+
+	assertContains(t, modal, "Response timeout", `name="responseTimeout" value="10m"`)
+}
+
+func TestBlockedSaveKeepsTheResponseTimeoutAsTyped(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	form := hostForm("ai.example.com")
+	form.Set("responseTimeout", "soon")
+
+	body := addHost(t, a, form).Body.String()
+
+	assertContains(t, body, `name="responseTimeout" value="soon"`)
+}
+
+func TestClearingAResponseTimeoutGeneratesNoTransport(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	form := hostForm("ai.example.com")
+	form.Set("responseTimeout", "10m")
+	addHost(t, a, form)
+	_, updatedAt := editForm(t, a, 1)
+
+	form.Set("responseTimeout", "")
+	form.Set("updatedAt", updatedAt)
+	if rec := post(t, a, "/proxy-hosts/1", form); rec.Code != 200 {
+		t.Fatalf("POST /proxy-hosts/1 = %d: %s", rec.Code, rec.Body)
+	}
+
+	snap := traefikConfig(t, a)["http"].(map[string]any)
+	if got, ok := snap["serversTransports"]; ok {
+		t.Errorf("serversTransports = %v, want none", got)
+	}
+	if got := snap["services"].(map[string]any)["host-1"].(map[string]any)["loadBalancer"].(map[string]any)["serversTransport"]; got != nil {
+		t.Errorf("service host-1 serversTransport = %v, want none", got)
+	}
+}
+
+func TestResponseTimeoutIsInTheDataFileOnlyWhenSet(t *testing.T) {
+	dir := t.TempDir()
+	a := newApp(t, internalOnly(dir))
+	addHost(t, a, hostForm("plain.example.com"))
+	timed := hostForm("ai.example.com")
+	timed.Set("responseTimeout", "10m")
+	addHost(t, a, timed)
+
+	var file struct {
+		ProxyHosts []map[string]any `json:"proxyHosts"`
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "proxy-hosts.json"))
+	if err := json.Unmarshal(b, &file); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, ok := file.ProxyHosts[0]["responseTimeout"]; ok {
+		t.Errorf("host with no Response timeout saved %v", got)
+	}
+	if got := file.ProxyHosts[1]["responseTimeout"]; got != "10m" {
+		t.Errorf("saved responseTimeout = %v, want 10m", got)
+	}
+}
+
+func TestDataFileFromBeforeResponseTimeoutsGeneratesNoTransport(t *testing.T) {
+	dir := t.TempDir()
+	restoreHosts(t, dir, `{"id": 1, "enabled": true, "domains": ["a.example.com"], "forward": {"scheme": "http", "host": "10.0.0.1", "port": 80}, "exposure": "internal", "forceSsl": false, "certResolver": "le-dns", "middlewares": [], "skipCertCheck": false, "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"}`)
+	a := newApp(t, internalOnly(dir))
+
+	if got, ok := traefikConfig(t, a)["http"].(map[string]any)["serversTransports"]; ok {
+		t.Errorf("serversTransports = %v, want none", got)
+	}
+}
+
+func TestRefusedEditKeepsTheSavedResponseTimeout(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	form := hostForm("ai.example.com")
+	form.Set("responseTimeout", "10m")
+	addHost(t, a, form)
+	_, updatedAt := editForm(t, a, 1)
+
+	form.Set("responseTimeout", "-5s")
+	form.Set("updatedAt", updatedAt)
+	if rec := post(t, a, "/proxy-hosts/1", form); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("POST /proxy-hosts/1 = %d, want 422", rec.Code)
+	}
+
+	modal, _ := editForm(t, a, 1)
+	assertContains(t, modal, `name="responseTimeout" value="10m"`)
+}
+
+func TestDisabledProxyHostsGenerateNoTransport(t *testing.T) {
+	a := newApp(t, internalOnly(t.TempDir()))
+	for domain, timeout := range map[string]string{"shared.example.com": "", "own.example.com": "10m"} {
+		form := hostForm(domain)
+		form.Set("scheme", "https")
+		form.Set("skipCertCheck", "on")
+		form.Set("responseTimeout", timeout)
+		form.Del("enabled")
+		addHost(t, a, form)
+	}
 
 	if got, ok := traefikConfig(t, a)["http"].(map[string]any)["serversTransports"]; ok {
 		t.Errorf("serversTransports = %v, want none", got)

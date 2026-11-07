@@ -14,17 +14,18 @@ import (
 
 // proxyHost is one stored Proxy Host, in the data file's shape.
 type proxyHost struct {
-	ID            int       `json:"id"`
-	Enabled       bool      `json:"enabled"`
-	Domains       []string  `json:"domains"`
-	Forward       forward   `json:"forward"`
-	Exposure      string    `json:"exposure"`
-	ForceSSL      bool      `json:"forceSsl"`
-	CertResolver  string    `json:"certResolver"`
-	Middlewares   []string  `json:"middlewares"`
-	SkipCertCheck bool      `json:"skipCertCheck"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID              int       `json:"id"`
+	Enabled         bool      `json:"enabled"`
+	Domains         []string  `json:"domains"`
+	Forward         forward   `json:"forward"`
+	Exposure        string    `json:"exposure"`
+	ForceSSL        bool      `json:"forceSsl"`
+	CertResolver    string    `json:"certResolver"`
+	Middlewares     []string  `json:"middlewares"`
+	SkipCertCheck   bool      `json:"skipCertCheck"`
+	ResponseTimeout string    `json:"responseTimeout,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 // forward is a Proxy Host's Forward Target.
