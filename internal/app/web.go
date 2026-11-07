@@ -59,6 +59,7 @@ type formView struct {
 	ID                                        int
 	UpdatedAt                                 string
 	Domains, Scheme, Host, Port, CertResolver string
+	ResponseTimeout                           string
 	Exposure                                  string
 	Access                                    []string // the picked Access rules, fully qualified
 	ForceSSL, SkipCertCheck, Enabled          bool
@@ -117,19 +118,20 @@ func (w *web) editForm(rw http.ResponseWriter, r *http.Request) {
 		problems = st.Messages
 	}
 	w.modal(rw, http.StatusOK, formView{
-		Problems:      problems,
-		ID:            h.ID,
-		UpdatedAt:     h.UpdatedAt.Format(time.RFC3339Nano),
-		Domains:       strings.Join(h.Domains, ", "),
-		Scheme:        h.Forward.Scheme,
-		Host:          h.Forward.Host,
-		Port:          strconv.Itoa(h.Forward.Port),
-		Exposure:      h.Exposure,
-		Access:        h.Middlewares,
-		ForceSSL:      h.ForceSSL,
-		SkipCertCheck: h.SkipCertCheck,
-		CertResolver:  h.CertResolver,
-		Enabled:       h.Enabled,
+		Problems:        problems,
+		ID:              h.ID,
+		UpdatedAt:       h.UpdatedAt.Format(time.RFC3339Nano),
+		Domains:         strings.Join(h.Domains, ", "),
+		Scheme:          h.Forward.Scheme,
+		Host:            h.Forward.Host,
+		Port:            strconv.Itoa(h.Forward.Port),
+		Exposure:        h.Exposure,
+		Access:          h.Middlewares,
+		ForceSSL:        h.ForceSSL,
+		SkipCertCheck:   h.SkipCertCheck,
+		ResponseTimeout: h.ResponseTimeout,
+		CertResolver:    h.CertResolver,
+		Enabled:         h.Enabled,
 	})
 }
 
@@ -287,17 +289,18 @@ func pathID(r *http.Request) int {
 func readForm(r *http.Request) formView {
 	r.ParseForm() // so r.Form is filled however the fields below are evaluated
 	return formView{
-		UpdatedAt:     r.FormValue("updatedAt"),
-		Domains:       r.FormValue("domains"),
-		Scheme:        r.FormValue("scheme"),
-		Host:          r.FormValue("host"),
-		Port:          r.FormValue("port"),
-		Exposure:      r.FormValue("exposure"),
-		ForceSSL:      r.FormValue("forceSsl") != "",
-		SkipCertCheck: r.FormValue("skipCertCheck") != "",
-		CertResolver:  r.FormValue("certResolver"),
-		Enabled:       r.FormValue("enabled") != "",
-		Access:        r.Form["access"],
+		UpdatedAt:       r.FormValue("updatedAt"),
+		Domains:         r.FormValue("domains"),
+		Scheme:          r.FormValue("scheme"),
+		Host:            r.FormValue("host"),
+		Port:            r.FormValue("port"),
+		Exposure:        r.FormValue("exposure"),
+		ForceSSL:        r.FormValue("forceSsl") != "",
+		SkipCertCheck:   r.FormValue("skipCertCheck") != "",
+		ResponseTimeout: r.FormValue("responseTimeout"),
+		CertResolver:    r.FormValue("certResolver"),
+		Enabled:         r.FormValue("enabled") != "",
+		Access:          r.Form["access"],
 	}
 }
 
@@ -309,14 +312,15 @@ func (w *web) parse(f formView) (proxyHost, []string) {
 		port = 0 // reported as out of range
 	}
 	h := proxyHost{
-		Enabled:       f.Enabled,
-		Domains:       splitDomains(f.Domains),
-		Forward:       forward{f.Scheme, f.Host, port},
-		Exposure:      f.Exposure,
-		ForceSSL:      f.ForceSSL,
-		SkipCertCheck: f.SkipCertCheck && f.Scheme == "https", // the toggle only shows for https
-		CertResolver:  f.CertResolver,
-		Middlewares:   w.settings.accessList(f.Exposure, f.Access),
+		Enabled:         f.Enabled,
+		Domains:         splitDomains(f.Domains),
+		Forward:         forward{f.Scheme, f.Host, port},
+		Exposure:        f.Exposure,
+		ForceSSL:        f.ForceSSL,
+		SkipCertCheck:   f.SkipCertCheck && f.Scheme == "https", // the toggle only shows for https
+		ResponseTimeout: f.ResponseTimeout,
+		CertResolver:    f.CertResolver,
+		Middlewares:     w.settings.accessList(f.Exposure, f.Access),
 	}
 	errs := h.problems()
 	if !slices.Contains(w.settings.certResolvers, f.CertResolver) {

@@ -24,6 +24,10 @@ _Avoid_: External route, docker route
 A Proxy Host option that redirects plain HTTP requests to HTTPS.
 _Avoid_: HTTPS redirect, redirect scheme
 
+**Response timeout**:
+How long Traefik waits for a Forward Target's response headers before returning a 504. Optional per Proxy Host: empty keeps the default, and `0` means no limit.
+_Avoid_: Response header timeout (in user-facing text), upstream timeout, gateway timeout
+
 **Certificate Resolver**:
 A certificate source already configured in Traefik that a Proxy Host can use for its HTTPS certificate. tpm selects one; it never issues or stores certificates.
 _Avoid_: SSL certificate, cert

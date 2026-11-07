@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var (
@@ -11,8 +12,8 @@ var (
 	hostSyntax   = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
-// problems lists what makes h a Proxy Host Traefik would reject, in the
-// words Save shows the user. Every stored host has none.
+// problems lists what makes h a Proxy Host Traefik would reject or misread,
+// in the words Save shows the user. Every stored host has none.
 func (h proxyHost) problems() []string {
 	var errs []string
 	if len(h.Domains) == 0 {
@@ -37,6 +38,9 @@ func (h proxyHost) problems() []string {
 	}
 	if h.Forward.Port < 1 || h.Forward.Port > 65535 {
 		errs = append(errs, "Port must be a number from 1 to 65535.")
+	}
+	if d, err := time.ParseDuration(h.ResponseTimeout); h.ResponseTimeout != "" && (err != nil || d < 0) {
+		errs = append(errs, fmt.Sprintf("Response timeout '%s' isn't valid. Use a duration such as 10m, or 0 for no limit.", h.ResponseTimeout))
 	}
 	return errs
 }

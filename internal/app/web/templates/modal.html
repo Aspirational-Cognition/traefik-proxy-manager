@@ -35,6 +35,8 @@
         </div>
         {{/* Shown only while the scheme is https; CSS, so no JS. */}}
         <label class="hidden group-has-[[name=scheme]_[value=https]:checked]:flex items-center gap-2 mt-2 text-sm text-fg-soft"><input type="checkbox" name="skipCertCheck"{{if .SkipCertCheck}} checked{{end}} class="accent-accent"> Skip certificate check (self-signed)</label>
+        <label class="flex items-center gap-2 mt-2 text-sm text-fg-soft">Response timeout <input name="responseTimeout" value="{{.ResponseTimeout}}" placeholder="10m" class="w-24 {{$input}} py-1"></label>
+        <div class="text-xs text-fg-muted mt-1">How long to wait for a response to start before returning a 504. Empty keeps the default; 0 means no limit.</div>
       </section>
 
       {{with .Exposures}}

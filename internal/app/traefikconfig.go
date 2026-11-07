@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Traefik dynamic config, hand-written: only the fields tpm emits.
@@ -65,7 +66,8 @@ type forwardingTimeouts struct {
 }
 
 // skipCertCheckTransport is the shared transport for Forward Targets whose
-// certificate isn't checked.
+// certificate isn't checked, unless the Proxy Host has a Response timeout and
+// so a transport of its own.
 const skipCertCheckTransport = "tpm-skip-cert-check"
 
 type server struct {
@@ -113,7 +115,14 @@ func generate(hosts []proxyHost, s settings) (snapshot, error) {
 		}
 		rule := strings.Join(rules, " || ")
 		lb := loadBalancer{Servers: []server{{h.Forward.URL()}}}
-		if h.SkipCertCheck {
+		if h.ResponseTimeout != "" {
+			timeout := h.ResponseTimeout
+			if d, _ := time.ParseDuration(timeout); d == 0 { // problems() has vetted it
+				timeout = "0s"
+			}
+			lb.ServersTransport = name
+			snap.HTTP.ServersTransports[name] = serversTransport{h.SkipCertCheck, &forwardingTimeouts{timeout}}
+		} else if h.SkipCertCheck {
 			lb.ServersTransport = skipCertCheckTransport
 			snap.HTTP.ServersTransports[skipCertCheckTransport] = serversTransport{true, s.timeouts}
 		}
