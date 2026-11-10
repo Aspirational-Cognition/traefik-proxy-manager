@@ -21,6 +21,10 @@ container. So we tried the very complete and full-featured [Traefik Manager](htt
 GUI to keep everything in one proxy system and get the otel stuff for free. However, after presenting the UI for approvals
 it was deemed too complicated and confusing to the people already using the existing system.
 
+This project was the compromise. It hooks into traefik and does the things we needed it to do. This implementation is very
+opinionated, we have a specific internal/external hosts layout that we wanted to maintain. It is optional to include both
+types of ingress for those with simpler needs, but not actively tested. The timeout options were added when some of our
+local ai responses went long compared to the defaults. Waiting for a local image or video generation can take a while.
 
 ## Visuals
 
@@ -292,6 +296,16 @@ docker compose start tpm
 
 A restored file may carry a lower `nextId` than the Proxy Hosts it holds. That's fine: tpm never hands out an ID
 already in the file.
+
+## Contributing
+
+I can't guarantee anything other than major bugs will be merged. We want the UI to stay simple and manageable
+for the people here who use it.
+
+## Donations?
+
+Unlikely, but with a company called ~~Wishful Thinking~~ Aspirational Cognition, we may as well try:
+Send some ETH to 0x8B69c14417F84366F302bE7E00Df4F67FD5742Ed
 
 ## License
 
