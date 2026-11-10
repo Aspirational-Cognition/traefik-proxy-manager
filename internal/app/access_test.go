@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.example.com/home/devops/traefik-proxy-manager/internal/app"
+	"github.com/Aspirational-Cognition/traefik-proxy-manager/internal/app"
 )
 
 // withDefaults is a two-sided install whose admin set default Access rules.

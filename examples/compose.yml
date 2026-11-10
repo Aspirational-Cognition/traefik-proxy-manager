@@ -5,7 +5,7 @@
 # see the README for every TPM_* setting.
 services:
   tpm:
-    image: registry.example.com:443/home/devops/traefik-proxy-manager:latest
+    image: ghcr.io/aspirational-cognition/traefik-proxy-manager:latest
     restart: unless-stopped
     networks:
       # Shared only with Traefik: Traefik polls tpm, and tpm reads Traefik's

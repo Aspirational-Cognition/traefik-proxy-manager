@@ -1,3 +1,3 @@
-module gitlab.example.com/home/devops/traefik-proxy-manager
+module github.com/Aspirational-Cognition/traefik-proxy-manager
 
 go 1.27.1
