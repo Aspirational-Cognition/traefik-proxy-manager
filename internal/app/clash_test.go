@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.example.com/home/devops/traefik-proxy-manager/internal/app"
+	"github.com/Aspirational-Cognition/traefik-proxy-manager/internal/app"
 )
 
 // router is how Traefik reports a loaded router with a rule.

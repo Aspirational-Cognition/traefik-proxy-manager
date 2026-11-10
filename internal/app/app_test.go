@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.example.com/home/devops/traefik-proxy-manager/internal/app"
+	"github.com/Aspirational-Cognition/traefik-proxy-manager/internal/app"
 )
 
 var t0 = time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)

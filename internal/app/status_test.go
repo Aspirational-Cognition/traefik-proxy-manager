@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.example.com/home/devops/traefik-proxy-manager/internal/app"
+	"github.com/Aspirational-Cognition/traefik-proxy-manager/internal/app"
 )
 
 // clock is a test clock that only moves when told to.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.example.com/home/devops/traefik-proxy-manager/internal/app"
+	"github.com/Aspirational-Cognition/traefik-proxy-manager/internal/app"
 )
 
 // banners reads the global banners atop the list page.

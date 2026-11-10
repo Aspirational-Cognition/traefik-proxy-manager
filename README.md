@@ -1,7 +1,12 @@
 # Traefik Proxy Manager (tpm)
 
-[![main pipeline](https://gitlab.example.com/home/devops/traefik-proxy-manager/badges/main/pipeline.svg?key_text=main)](https://gitlab.example.com/home/devops/traefik-proxy-manager/-/pipelines?ref=main)
-[![dev pipeline](https://gitlab.example.com/home/devops/traefik-proxy-manager/badges/dev/pipeline.svg?key_text=dev)](https://gitlab.example.com/home/devops/traefik-proxy-manager/-/pipelines?ref=dev)
+[![main](https://img.shields.io/github/actions/workflow/status/Aspirational-Cognition/traefik-proxy-manager/ci.yml?branch=main&label=main&logo=github)](https://github.com/Aspirational-Cognition/traefik-proxy-manager/actions/workflows/ci.yml?query=branch%3Amain)
+[![dev](https://img.shields.io/github/actions/workflow/status/Aspirational-Cognition/traefik-proxy-manager/ci.yml?branch=dev&label=dev&logo=github)](https://github.com/Aspirational-Cognition/traefik-proxy-manager/actions/workflows/ci.yml?query=branch%3Adev)
+[![release](https://img.shields.io/github/v/tag/Aspirational-Cognition/traefik-proxy-manager?sort=semver&label=release)](https://github.com/Aspirational-Cognition/traefik-proxy-manager/tags)
+[![image](https://img.shields.io/badge/image-ghcr.io-2496ed?logo=docker&logoColor=white)](https://github.com/Aspirational-Cognition/traefik-proxy-manager/pkgs/container/traefik-proxy-manager)
+[![license](https://img.shields.io/github/license/Aspirational-Cognition/traefik-proxy-manager)](LICENSE)
+
+A simple, Nginx-Proxy-Manager-style UI for adding Proxy Hosts to a running Traefik v3.
 
 ## Description
 
@@ -47,7 +52,7 @@ networks. The example shows Proxy Login with Local Login as Fallback; for the ot
 # see the README for every TPM_* setting.
 services:
   tpm:
-    image: registry.example.com:443/home/devops/traefik-proxy-manager:latest
+    image: ghcr.io/aspirational-cognition/traefik-proxy-manager:latest
     restart: unless-stopped
     networks:
       # Shared only with Traefik: Traefik polls tpm, and tpm reads Traefik's

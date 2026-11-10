@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.example.com/home/devops/traefik-proxy-manager/internal/app"
+	"github.com/Aspirational-Cognition/traefik-proxy-manager/internal/app"
 )
 
 // formLogin is an install with Form-style Local Login as admin / s3cret.
